@@ -28,6 +28,8 @@ const App = () => {
       canEditTitle={false}
       canManageFiles
       isPlayerOnly={isPlayerOnly}
+      // Scratch's trademark guidance: say "based on Scratch", never use its logo.
+      logo="/codeykids-logo.png"
       onProjectLoaded={() => postToPage({ type: "ready" })}
       onVmInit={onVmInit}
       // "0" is the GUI's bundled default project (the cat). Without a project
