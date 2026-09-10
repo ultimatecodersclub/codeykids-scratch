@@ -1,0 +1,33 @@
+* { box-sizing: border-box; }
+body { font: 14px system-ui, sans-serif; color: #1e293b; }
+button { font: inherit; cursor: pointer; }
+
+.layout { display: grid; grid-template-columns: 200px minmax(0, 1fr) minmax(0, 1fr); height: 100vh; }
+
+.files { border-right: 1px solid #cbd5e1; background: #f8fafc; display: flex; flex-direction: column; min-height: 0; }
+.files-header, .preview-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; font-weight: 600; border-bottom: 1px solid #cbd5e1; background: #e2e8f0; height: 36px; }
+.files-actions button, .files-actions label { border: 0; background: none; padding: 2px 6px; border-radius: 4px; cursor: pointer; }
+.files-actions button:hover, .files-actions label:hover { background: #cbd5e1; }
+.files ul { list-style: none; margin: 0; padding: 4px 0; overflow: auto; }
+.files li { display: flex; align-items: center; }
+.files li.active { background: #dbeafe; }
+.file-name { flex: 1; text-align: left; border: 0; background: none; padding: 6px 10px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+.file-actions { display: none; padding-right: 6px; }
+.files li:hover .file-actions { display: inline-flex; }
+.file-actions button { border: 0; background: none; padding: 2px 4px; color: #64748b; }
+.file-actions button:hover { color: #0f172a; }
+
+.code { min-width: 0; min-height: 0; border-right: 1px solid #cbd5e1; }
+.editor { height: 100%; }
+.editor .cm-editor { height: 100%; }
+.binary { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 8px; color: #64748b; }
+.binary img { max-width: 80%; max-height: 60%; }
+
+.preview { display: flex; flex-direction: column; min-width: 0; background: #fff; }
+.preview iframe { flex: 1; border: 0; width: 100%; background: #fff; }
+.preview select { font: inherit; }
+
+/* Light and legible whatever the host's colour scheme is. */
+.editor .cm-editor { background: #fff; color: #1e293b; }
+.editor .cm-gutters { background: #f1f5f9; color: #94a3b8; border-right: 1px solid #e2e8f0; }
+.editor .cm-activeLine { background: #f8fafc; }
