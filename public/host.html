@@ -20,20 +20,21 @@
       <div class="status" id="status">status: booting</div>
       <button id="load-blank">Load blank project</button>
       <button id="load-saved">Load last saved blob</button>
-      <label>Load a project file from disk <input id="file" type="file" accept=".sb3,.zip" /></label>
+      <label>Load a project file from disk <input id="file" type="file" accept=".sb3,.zip,.py" /></label>
       <button id="save">Save now (ask editor for .sb3)</button>
       <button id="download">Download last saved .sb3</button>
       <button id="ro-on">Read-only on</button>
       <button id="ro-off">Read-only off</button>
       <pre id="log"></pre>
     </aside>
-    <!-- ?editor=web opens the web editor instead of Scratch. -->
+    <!-- ?editor=web or ?editor=python opens that editor instead of Scratch. -->
     <iframe id="editor" src="/" allow="camera; microphone"></iframe>
 
     <script>
       const editor = document.getElementById("editor");
       const which = new URLSearchParams(location.search).get("editor");
       if (which === "web") editor.src = "/web/";
+      if (which === "python") editor.src = "/python/";
       const logEl = document.getElementById("log");
       const statusEl = document.getElementById("status");
       let lastSaved = null;

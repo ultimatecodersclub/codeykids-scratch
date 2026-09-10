@@ -5,6 +5,8 @@ The editors CodeyKids embeds beside a lesson's steps, one static site:
 - `/` — Scratch 3 (`@scratch/scratch-gui`)
 - `/web/` — the web design editor: a file list, CodeMirror, and a sandboxed
   live preview; projects save as a zip
+- `/python/` — the Python editor: CodeMirror and Skulpt, so turtle and
+  `input()` programs run in the browser; projects save as `main.py`
 
 The Scratch 3 editor that CodeyKids embeds next to a lesson's steps. It wraps
 the Scratch Foundation's `@scratch/scratch-gui` with a tiny `postMessage`
@@ -23,7 +25,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:8601/host.html (or `host.html?editor=web`) for a
+Open http://localhost:8601/host.html (or `host.html?editor=web`, `?editor=python`) for a
 stand-in lesson page that drives an editor through the bridge: load a blank or saved project, load an `.sb3`
 from disk, ask for a save, toggle read-only. The editor on its own is at
 http://localhost:8601/.
@@ -39,8 +41,8 @@ iframe):
 
 | Message | Meaning |
 | --- | --- |
-| `{ type: "load", file?, url?, readOnly? }` | Load the project given as a Blob in `file`, or fetched from `url` (`.sb3` for Scratch, a zip for the web editor). With neither, the current project stays. |
-| `{ type: "save", requestId }` | Ask for the current project as a Blob (`.sb3`, or a zip of the site). |
+| `{ type: "load", file?, url?, readOnly? }` | Load the project given as a Blob in `file`, or fetched from `url` (`.sb3` for Scratch, a zip for the web editor, `.py` or a zip holding one for Python). With neither, the current project stays. |
+| `{ type: "save", requestId }` | Ask for the current project as a Blob (`.sb3`, a zip of the site, or `main.py`). |
 | `{ type: "setReadOnly", value }` | Switch between the editor and player-only mode. |
 
 Messages the editor sends to the lesson page:

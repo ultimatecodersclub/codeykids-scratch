@@ -1,0 +1,26 @@
+* { box-sizing: border-box; }
+body { font: 14px system-ui, sans-serif; color: #1e293b; }
+button { font: inherit; cursor: pointer; }
+
+.layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); height: 100vh; }
+
+.code { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid #cbd5e1; }
+.bar { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border-bottom: 1px solid #cbd5e1; background: #e2e8f0; }
+.filename { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+.spacer { flex: 1; }
+.run, .stop { border: 0; border-radius: 6px; padding: 4px 12px; font-weight: 600; color: #fff; }
+.run { background: #16a34a; }
+.stop { background: #dc2626; }
+.editor { flex: 1; min-height: 0; }
+.editor .cm-editor { height: 100%; background: #fff; color: #1e293b; }
+.editor .cm-gutters { background: #f1f5f9; color: #94a3b8; border-right: 1px solid #e2e8f0; }
+.editor .cm-activeLine { background: #f8fafc; }
+
+.output { display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); min-width: 0; background: #fff; }
+.turtle { border-bottom: 1px solid #cbd5e1; overflow: hidden; }
+.turtle canvas { display: block; }
+.console { padding: 8px 10px; overflow: auto; font-family: ui-monospace, Menlo, monospace; font-size: 13px; white-space: pre-wrap; background: #0f172a; color: #e2e8f0; }
+.console .error { color: #fca5a5; }
+.console .info { color: #94a3b8; }
+.prompt { display: flex; gap: 6px; }
+.prompt input { flex: 1; font: inherit; background: #1e293b; color: #fff; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; }

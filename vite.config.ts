@@ -12,6 +12,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
+        python: resolve(__dirname, "python/index.html"),
         web: resolve(__dirname, "web/index.html"),
       },
     },
