@@ -45,7 +45,9 @@ export const useEditorBridge = ({
       loadingProjectRef.current = true;
 
       try {
-        if (message.url) {
+        if (message.file) {
+          await vm.loadProject(await message.file.arrayBuffer());
+        } else if (message.url) {
           const response = await fetch(message.url);
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
 

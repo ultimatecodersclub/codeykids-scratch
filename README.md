@@ -33,7 +33,7 @@ iframe):
 
 | Message | Meaning |
 | --- | --- |
-| `{ type: "load", url, readOnly? }` | Fetch the `.sb3` at `url` and load it. `url: null` keeps the current project. |
+| `{ type: "load", file?, url?, readOnly? }` | Load the `.sb3` given as a Blob in `file`, or fetched from `url`. Neither keeps the current project. |
 | `{ type: "save", requestId }` | Ask for the current project as an `.sb3` Blob. |
 | `{ type: "setReadOnly", value }` | Switch between the editor and player-only mode. |
 

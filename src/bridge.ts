@@ -3,7 +3,9 @@
 // and asks for a Blob to save. See the CodeyKids Studio plan.
 
 export type PageToEditor =
-  | { type: "load"; url: string | null; readOnly?: boolean }
+  // `file` is the project itself; `url` is fetched by the editor. A page that
+  // already has the bytes passes `file` and skips CORS on this origin.
+  | { type: "load"; file?: Blob; url?: string | null; readOnly?: boolean }
   | { type: "save"; requestId: string }
   | { type: "setReadOnly"; value: boolean };
 
