@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Spike host: pretend CodeyKids</title>
+    <style>
+      html, body { margin: 0; height: 100%; font: 14px system-ui, sans-serif; }
+      body { display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+      aside { padding: 12px; border-right: 1px solid #ccc; overflow: auto; background: #f6f8f6; }
+      iframe { width: 100%; height: 100%; border: 0; }
+      button { display: block; margin: 6px 0; padding: 6px 10px; }
+      pre { background: #eef2ef; padding: 8px; font-size: 12px; white-space: pre-wrap; max-height: 40vh; overflow: auto; }
+      .status { font-weight: 600; margin: 8px 0; }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <h3>Pretend lesson page</h3>
+      <p>This page stands in for CodeyKids. It drives the editor in the iframe through postMessage only.</p>
+      <div class="status" id="status">status: booting</div>
+      <button id="load-blank">Load blank project</button>
+      <button id="load-saved">Load last saved blob</button>
+      <label>Load an .sb3 from disk <input id="file" type="file" accept=".sb3" /></label>
+      <button id="save">Save now (ask editor for .sb3)</button>
+      <button id="download">Download last saved .sb3</button>
+      <button id="ro-on">Read-only on</button>
+      <button id="ro-off">Read-only off</button>
+      <pre id="log"></pre>
+    </aside>
+    <iframe id="editor" src="/" allow="camera; microphone"></iframe>
+
+    <script>
+      const editor = document.getElementById("editor");
+      const logEl = document.getElementById("log");
+      const statusEl = document.getElementById("status");
+      let lastSaved = null;
+      let lastSavedUrl = null;
+      let dirty = false;
+      let autosaveTimer = null;
+
+      const log = (line) => {
+        logEl.textContent = `${new Date().toLocaleTimeString()} ${line}\n` + logEl.textContent;
+      };
+      const send = (message) => {
+        log(`→ ${message.type}${message.url ? " " + message.url.slice(0, 40) : ""}`);
+        editor.contentWindow.postMessage(message, "*");
+      };
+      const setStatus = (text) => (statusEl.textContent = `status: ${text}`);
+
+      const save = () => {
+        send({ type: "save", requestId: String(Date.now()) });
+        setStatus("saving…");
+      };
+
+      window.addEventListener("message", (event) => {
+        if (event.source !== editor.contentWindow) return;
+        const m = event.data;
+        log(`← ${m.type}${m.message ? " " + m.message : ""}${m.file ? ` ${m.file.size} bytes` : ""}`);
+
+        if (m.type === "ready") {
+          setStatus("ready");
+        } else if (m.type === "changed") {
+          dirty = true;
+          setStatus("unsaved changes (autosave in 30s)");
+          clearTimeout(autosaveTimer);
+          autosaveTimer = setTimeout(save, 30000);
+        } else if (m.type === "saved") {
+          lastSaved = m.file;
+          if (lastSavedUrl) URL.revokeObjectURL(lastSavedUrl);
+          lastSavedUrl = URL.createObjectURL(lastSaved);
+          dirty = false;
+          setStatus(`saved ${(m.file.size / 1024).toFixed(0)} KB`);
+        } else if (m.type === "loaded") {
+          setStatus("loaded");
+        }
+      });
+
+      document.getElementById("load-blank").onclick = () => send({ type: "load", url: null });
+      document.getElementById("load-saved").onclick = () =>
+        lastSavedUrl ? send({ type: "load", url: lastSavedUrl }) : log("nothing saved yet");
+      document.getElementById("file").onchange = (e) => {
+        const f = e.target.files[0];
+        if (f) send({ type: "load", url: URL.createObjectURL(f) });
+      };
+      document.getElementById("save").onclick = save;
+      document.getElementById("download").onclick = () => {
+        if (!lastSavedUrl) return log("nothing saved yet");
+        const a = document.createElement("a");
+        a.href = lastSavedUrl;
+        a.download = "project.sb3";
+        a.click();
+      };
+      document.getElementById("ro-on").onclick = () => send({ type: "setReadOnly", value: true });
+      document.getElementById("ro-off").onclick = () => send({ type: "setReadOnly", value: false });
+    </script>
+  </body>
+</html>
