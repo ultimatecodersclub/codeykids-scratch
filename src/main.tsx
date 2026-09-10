@@ -1,5 +1,5 @@
 import GUI, { AppStateHOC, setAppElement } from "@scratch/scratch-gui";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { postToPage } from "./bridge";
@@ -18,18 +18,44 @@ export type ScratchVM = {
 
 const WrappedGui = AppStateHOC(GUI);
 
+const LOGO = "/codeykids-logo.png";
+
+// The published GUI picks the menubar image from its `platform` and ignores
+// the `logo` prop, so the image is swapped in the DOM instead, and again
+// whenever the menubar is rendered afresh. Scratch's trademark guidance: say
+// "based on Scratch", never show its logo.
+const useCodeyKidsLogo = () => {
+  useEffect(() => {
+    const swap = () => {
+      const img = document.getElementById("logo_img");
+
+      if (img instanceof HTMLImageElement && !img.src.endsWith(LOGO)) {
+        img.src = LOGO;
+        img.alt = "CodeyKids";
+      }
+    };
+    const observer = new MutationObserver(swap);
+
+    swap();
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    return () => observer.disconnect();
+  }, []);
+};
+
 const App = () => {
   const [isPlayerOnly, setIsPlayerOnly] = useState(false);
 
   const { onVmInit } = useEditorBridge({ setIsPlayerOnly });
+
+  useCodeyKidsLogo();
 
   return (
     <WrappedGui
       canEditTitle={false}
       canManageFiles
       isPlayerOnly={isPlayerOnly}
-      // Scratch's trademark guidance: say "based on Scratch", never use its logo.
-      logo="/codeykids-logo.png"
+      logo={LOGO}
       onProjectLoaded={() => postToPage({ type: "ready" })}
       onVmInit={onVmInit}
       // "0" is the GUI's bundled default project (the cat). Without a project
