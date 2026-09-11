@@ -93,57 +93,82 @@ const dataURL = (name: string, file: WebFile) => {
   return `data:${type};base64,${btoa(binary)}`;
 };
 
-// One page of the site with everything it references inlined, so the sandboxed
-// preview needs no server: stylesheets and scripts become inline tags, images
-// become data URLs, and links to the site's other pages become blob URLs of
-// those pages built the same way.
-export const buildPreview = (files: WebFiles, page: string) => {
-  const pageURLs = new Map<string, string>();
-
-  const build = (name: string, depth: number): string => {
-    let html = files[name]?.text ?? "";
-
-    html = html.replace(
-      /<link\b[^>]*href=["']([^"']+)["'][^>]*>/gi,
-      (tag, href: string) =>
-        files[href]?.text !== undefined && /rel=["']stylesheet["']/i.test(tag)
-          ? `<style>${files[href].text}</style>`
-          : tag,
-    );
-    html = html.replace(
-      /<script\b([^>]*)\bsrc=["']([^"']+)["']([^>]*)><\/script>/gi,
-      (tag, before: string, src: string, after: string) =>
-        files[src]?.text !== undefined
-          ? `<script${before}${after}>${files[src].text}</script>`
-          : tag,
-    );
-    html = html.replace(
-      /\b(src|href)=["']([^"':]+)["']/gi,
-      (attribute, key: string, path: string) => {
-        const file = files[path];
-
-        if (!file) return attribute;
-        if (isHtml(path) && key === "href") {
-          if (depth < 4 && !pageURLs.has(path)) {
-            pageURLs.set(path, "");
-            pageURLs.set(
-              path,
-              URL.createObjectURL(
-                new Blob([build(path, depth + 1)], { type: "text/html" }),
-              ),
-            );
-          }
-
-          return `${key}="${pageURLs.get(path) ?? attribute}"`;
-        }
-        if (file.bytes || key === "src") return `${key}="${dataURL(path, file)}"`;
-
-        return attribute;
-      },
-    );
-
-    return html;
+// Runs inside the preview (kept free of backslashes: a template literal eats
+// them): a click on a link to another page of the site
+// asks the editor to show that page (a sandboxed page cannot load a blob of
+// it), `#id` links scroll, links elsewhere open a new tab, and a form the page
+// did not handle itself shows its page again instead of leaving the preview.
+const previewScript = (pages: string[], current: string) => `<script>
+(() => {
+  const PAGES = ${JSON.stringify(pages)};
+  const CURRENT = ${JSON.stringify(current)};
+  const go = (page) => window.parent.postMessage({ page, type: "preview:navigate" }, "*");
+  const pageOf = (href) => {
+    let name = href.split("#")[0].split("?")[0];
+    if (name.startsWith("./")) name = name.slice(2);
+    return PAGES.includes(name) ? name : null;
   };
+  document.addEventListener("click", (e) => {
+    const a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+    if (!a || e.defaultPrevented) return;
+    const href = a.getAttribute("href") || "";
+    if (href.startsWith("#")) {
+      e.preventDefault();
+      const id = decodeURIComponent(href.slice(1));
+      const el = id ? document.getElementById(id) : null;
+      if (el) el.scrollIntoView(); else if (!id) window.scrollTo(0, 0);
+      return;
+    }
+    const page = pageOf(href);
+    if (page) { e.preventDefault(); go(page); return; }
+    if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith("//")) {
+      e.preventDefault();
+      window.open(a.href, "_blank", "noopener");
+    }
+  });
+  document.addEventListener("submit", (e) => {
+    if (e.defaultPrevented) return;
+    e.preventDefault();
+    const action = (e.target.getAttribute("action") || "").split("#")[0].split("?")[0];
+    go(pageOf(action) || CURRENT);
+  });
+})();
+</script>`;
 
-  return build(page, 0);
+// One page of the site with everything it references inlined, so the sandboxed
+// preview needs no server: stylesheets and scripts become inline tags and
+// images become data URLs. Links to the site's other pages stay as they are
+// and are handled by the preview script.
+export const buildPreview = (files: WebFiles, page: string) => {
+  let html = files[page]?.text ?? "";
+
+  html = html.replace(
+    /<link\b[^>]*href=["']([^"']+)["'][^>]*>/gi,
+    (tag, href: string) =>
+      files[href]?.text !== undefined && /rel=["']stylesheet["']/i.test(tag)
+        ? `<style>${files[href].text}</style>`
+        : tag,
+  );
+  html = html.replace(
+    /<script\b([^>]*)\bsrc=["']([^"']+)["']([^>]*)><\/script>/gi,
+    (tag, before: string, src: string, after: string) =>
+      files[src]?.text !== undefined
+        ? `<script${before}${after}>${files[src].text}</script>`
+        : tag,
+  );
+  html = html.replace(
+    /\b(src|href)=["']([^"':]+)["']/gi,
+    (attribute, key: string, path: string) => {
+      const file = files[path];
+
+      if (!file || isHtml(path)) return attribute;
+      if (file.bytes || key === "src") return `${key}="${dataURL(path, file)}"`;
+
+      return attribute;
+    },
+  );
+
+  const script = previewScript(Object.keys(files).filter(isHtml), page);
+
+  return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${script}</body>`) : `${html}${script}`;
 };

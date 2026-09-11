@@ -31,6 +31,7 @@ const WebEditor = () => {
 
   const filesRef = useRef(files);
   const lastChangedAt = useRef(0);
+  const previewRef = useRef<HTMLIFrameElement>(null);
 
   filesRef.current = files;
 
@@ -93,6 +94,23 @@ const WebEditor = () => {
           break;
       }
     });
+  }, []);
+
+  // The preview script asks for another page of the site when a link to it
+  // is clicked or a form is sent.
+  useEffect(() => {
+    const listener = (event: MessageEvent) => {
+      if (event.source !== previewRef.current?.contentWindow) return;
+      if (event.data?.type !== "preview:navigate") return;
+
+      const page = String(event.data.page);
+
+      if (isHtml(page) && filesRef.current[page]) setPreviewPage(page);
+    };
+
+    window.addEventListener("message", listener);
+
+    return () => window.removeEventListener("message", listener);
   }, []);
 
   // The preview follows the files, a moment after the last keystroke.
@@ -206,7 +224,14 @@ const WebEditor = () => {
             ))}
           </select>
         </div>
-        <iframe sandbox="allow-scripts allow-modals" srcDoc={srcdoc} title="Preview" />
+        {/* Forms, downloads and new tabs are the kid's page's to use; without
+            allow-same-origin the page stays walled off from the editor. */}
+        <iframe
+          ref={previewRef}
+          sandbox="allow-scripts allow-modals allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox"
+          srcDoc={srcdoc}
+          title="Preview"
+        />
       </section>
     </div>
   );
