@@ -1,9 +1,9 @@
-import { strFromU8, unzipSync } from "fflate";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { listenToPage, postToPage } from "../bridge";
 import { CodeEditor } from "../web/CodeEditor";
+import { bytesOf, fromBytes, isText, MAIN, PythonFiles, starterFiles, toBlob } from "./project";
 import { RunError, runPython } from "./runner";
 import "./python.css";
 
@@ -12,26 +12,15 @@ const CHANGED_THROTTLE_MS = 1000;
 const TURTLE_TARGET = "turtle";
 // A runaway loop would otherwise grow the console without end.
 const CONSOLE_CAP = 2000;
-const TRIMMED: Line = { kind: "info", text: "… earlier output trimmed …\n" };
-
-const STARTER = `# Write your Python here, then press Run.
-name = input("What is your name? ")
-print("Hello, " + name + "!")
-`;
 
 type Line = { kind: "error" | "info" | "out"; text: string };
 type Pending = { prompt: string; resolve: (value: string) => void };
 
-// A zip from elsewhere: take main.py, else the first .py file.
-const codeFromZip = (bytes: Uint8Array) => {
-  const entries = unzipSync(bytes);
-  const name = entries["main.py"] ? "main.py" : Object.keys(entries).find((n) => n.endsWith(".py"));
-
-  return name ? strFromU8(entries[name]) : "";
-};
+const TRIMMED: Line = { kind: "info", text: "… earlier output trimmed …\n" };
 
 const PythonEditor = () => {
-  const [code, setCode] = useState(STARTER);
+  const [files, setFiles] = useState<PythonFiles>(starterFiles);
+  const [active, setActive] = useState(MAIN);
   const [generation, setGeneration] = useState(0);
   const [lines, setLines] = useState<Line[]>([]);
   const [pending, setPending] = useState<Pending>();
@@ -39,13 +28,19 @@ const PythonEditor = () => {
   const [running, setRunning] = useState(false);
   const [answer, setAnswer] = useState("");
 
-  const codeRef = useRef(code);
+  const filesRef = useRef(files);
   const lastChangedAt = useRef(0);
   const stopRef = useRef(false);
   const turtleRef = useRef<HTMLDivElement>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
 
-  codeRef.current = code;
+  filesRef.current = files;
+
+  // main.py first, then the rest by name.
+  const names = useMemo(
+    () => Object.keys(files).sort((a, b) => (a === MAIN ? -1 : b === MAIN ? 1 : a.localeCompare(b))),
+    [files],
+  );
 
   const append = useCallback(
     (line: Line) =>
@@ -57,15 +52,21 @@ const PythonEditor = () => {
     [],
   );
 
-  const onChange = useCallback((text: string) => {
-    setCode(text);
-
+  const changed = useCallback(() => {
     const now = Date.now();
     if (now - lastChangedAt.current < CHANGED_THROTTLE_MS) return;
 
     lastChangedAt.current = now;
     postToPage({ type: "changed" });
   }, []);
+
+  const update = useCallback(
+    (next: PythonFiles) => {
+      setFiles(next);
+      changed();
+    },
+    [changed],
+  );
 
   useEffect(() => {
     postToPage({ type: "ready" });
@@ -75,15 +76,10 @@ const PythonEditor = () => {
         case "load":
           try {
             const blob = message.file ?? (message.url ? await (await fetch(message.url)).blob() : undefined);
-            let text = STARTER;
+            const next = blob ? fromBytes(new Uint8Array(await blob.arrayBuffer())) : starterFiles();
 
-            if (blob) {
-              const bytes = new Uint8Array(await blob.arrayBuffer());
-              // A zip starts with "PK".
-              text = bytes[0] === 0x50 && bytes[1] === 0x4b ? codeFromZip(bytes) : strFromU8(bytes);
-            }
-
-            setCode(text);
+            setFiles(next);
+            setActive(MAIN);
             setGeneration((i) => i + 1);
             setLines([]);
             if (message.readOnly !== undefined) setReadOnly(message.readOnly);
@@ -93,14 +89,12 @@ const PythonEditor = () => {
           }
           break;
         case "save": {
-          const file = new Blob([codeRef.current], { type: "text/x-python" });
-
-          if (file.size > SIZE_LIMIT) {
-            postToPage({ message: "The program is over 20 MB.", requestId: message.requestId, type: "saveFailed" });
+          if (bytesOf(filesRef.current) > SIZE_LIMIT) {
+            postToPage({ message: "The project is over 20 MB.", requestId: message.requestId, type: "saveFailed" });
             break;
           }
 
-          postToPage({ file, requestId: message.requestId, type: "saved" });
+          postToPage({ file: toBlob(filesRef.current), requestId: message.requestId, type: "saved" });
           break;
         }
         case "setReadOnly":
@@ -126,10 +120,16 @@ const PythonEditor = () => {
     const size = turtleRef.current
       ? { height: turtleRef.current.clientHeight, width: turtleRef.current.clientWidth }
       : { height: 300, width: 400 };
+    const texts: Record<string, string> = {};
+
+    for (const [name, file] of Object.entries(filesRef.current)) {
+      if (file.text !== undefined) texts[name] = file.text;
+    }
 
     const error: RunError | undefined = await runPython(
-      codeRef.current,
+      texts[MAIN] ?? "",
       {
+        files: texts,
         input: (prompt) => new Promise((resolve) => setPending({ prompt, resolve })),
         output: (text) => append({ kind: "out", text }),
         turtleSize: size,
@@ -162,26 +162,112 @@ const PythonEditor = () => {
     setAnswer("");
   };
 
+  const addFile = () => {
+    const name = window.prompt("File name, for example helpers.py or data.txt")?.trim();
+
+    if (!name || files[name]) return;
+    if (!isText(name)) {
+      window.alert("Give it a .py, .txt, .csv, .json or .md name.");
+      return;
+    }
+
+    update({ ...files, [name]: { text: "" } });
+    setActive(name);
+  };
+
+  const renameFile = (name: string) => {
+    const next = window.prompt("New name", name)?.trim();
+
+    if (!next || next === name || files[next] || !isText(next)) return;
+
+    const { [name]: file, ...rest } = files;
+
+    update({ ...rest, [next]: file });
+    if (active === name) setActive(next);
+  };
+
+  const deleteFile = (name: string) => {
+    if (!window.confirm(`Delete ${name}?`)) return;
+
+    const { [name]: _removed, ...rest } = files;
+
+    update(rest);
+    if (active === name) setActive(MAIN);
+  };
+
+  const activeFile = files[active];
+  const hasOthers = names.length > 1;
+
   return (
-    <div className="layout">
+    <div className={hasOthers || !readOnly ? "layout with-files" : "layout"}>
+      {(hasOthers || !readOnly) && (
+        <aside className="files">
+          <div className="files-header">
+            <span>Files</span>
+            {!readOnly && (
+              <button onClick={addFile} title="New file" type="button">
+                +
+              </button>
+            )}
+          </div>
+          <ul>
+            {names.map((name) => (
+              <li className={name === active ? "active" : ""} key={name}>
+                <button className="file-name" onClick={() => setActive(name)} type="button">
+                  {name}
+                </button>
+                {!readOnly && name !== MAIN && (
+                  <span className="file-actions">
+                    <button onClick={() => renameFile(name)} title="Rename" type="button">
+                      ✎
+                    </button>
+                    <button onClick={() => deleteFile(name)} title="Delete" type="button">
+                      ×
+                    </button>
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </aside>
+      )}
+
       <main className="code">
         <div className="bar">
-          <span className="filename">main.py</span>
+          <span className="filename">{active}</span>
           <span className="spacer" />
           {running ? (
-            <button className="stop" onClick={stop} type="button">■ Stop</button>
+            <button className="stop" onClick={stop} type="button">
+              ■ Stop
+            </button>
           ) : (
-            <button className="run" onClick={() => void run()} type="button">▶ Run</button>
+            <button className="run" onClick={() => void run()} title="Runs main.py" type="button">
+              ▶ Run
+            </button>
           )}
         </div>
-        <CodeEditor key={generation} name="main.py" onChange={onChange} readOnly={readOnly} value={code} />
+        {activeFile?.text !== undefined ? (
+          <CodeEditor
+            key={`${generation}:${active}`}
+            name={active}
+            onChange={(text) => update({ ...filesRef.current, [active]: { text } })}
+            readOnly={readOnly}
+            value={activeFile.text}
+          />
+        ) : (
+          <div className="binary">
+            {active} · {Math.round((activeFile?.bytes?.byteLength ?? 0) / 1024)} KB, kept with the project
+          </div>
+        )}
       </main>
 
       <section className="output">
         <div className="turtle" id={TURTLE_TARGET} ref={turtleRef} />
         <div className="console" ref={consoleRef}>
           {lines.map((line, i) => (
-            <span className={line.kind} key={i}>{line.text}</span>
+            <span className={line.kind} key={i}>
+              {line.text}
+            </span>
           ))}
           {pending && (
             <form

@@ -3,6 +3,9 @@
 // cancels at the next loop iteration or turtle move.
 
 export type RunHandlers = {
+  // The project's text files: `import helpers` reads `./helpers.py` and
+  // `open("data.txt")` reads `data.txt`.
+  files: Record<string, string>;
   input: (prompt: string) => Promise<string>;
   output: (text: string) => void;
   turtleTarget: string;
@@ -11,7 +14,11 @@ export type RunHandlers = {
 
 export type RunError = { line?: number; message: string };
 
-const builtinRead = (name: string) => {
+const reader = (project: Record<string, string>) => (name: string) => {
+  const own = name.startsWith("./") ? name.slice(2) : name;
+
+  if (project[own] !== undefined) return project[own];
+
   const files = Sk.builtinFiles?.files;
 
   if (!files || files[name] === undefined) throw new Error(`File not found: '${name}'`);
@@ -48,10 +55,13 @@ export const runPython = (code: string, handlers: RunHandlers, stopped: () => bo
     killableFor: true,
     killableWhile: true,
     output: handlers.output,
-    read: builtinRead,
+    read: reader(handlers.files),
     yieldLimit: 100,
   });
   Sk.TurtleGraphics = { target: handlers.turtleTarget, ...handlers.turtleSize };
+  // In "browser" mode open() looks for a DOM element named after the file;
+  // off, it goes through the reader above, which serves the project's files.
+  Sk.inBrowser = false;
 
   return Sk.misceval
     .asyncToPromise(() => Sk.importMainWithBody("<stdin>", false, code, true), {

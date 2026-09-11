@@ -3,6 +3,21 @@ body { font: 14px system-ui, sans-serif; color: #1e293b; }
 button { font: inherit; cursor: pointer; }
 
 .layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); height: 100vh; }
+.layout.with-files { grid-template-columns: 170px minmax(0, 3fr) minmax(0, 2fr); }
+
+.files { border-right: 1px solid #cbd5e1; background: #f8fafc; display: flex; flex-direction: column; min-height: 0; }
+.files-header { display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 10px; font-weight: 600; border-bottom: 1px solid #cbd5e1; background: #e2e8f0; }
+.files-header button { border: 0; background: none; padding: 2px 6px; border-radius: 4px; }
+.files-header button:hover { background: #cbd5e1; }
+.files ul { list-style: none; margin: 0; padding: 4px 0; overflow: auto; }
+.files li { display: flex; align-items: center; }
+.files li.active { background: #dbeafe; }
+.file-name { flex: 1; text-align: left; border: 0; background: none; padding: 6px 10px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+.file-actions { display: none; padding-right: 6px; }
+.files li:hover .file-actions { display: inline-flex; }
+.file-actions button { border: 0; background: none; padding: 2px 4px; color: #64748b; }
+.file-actions button:hover { color: #0f172a; }
+.binary { display: flex; align-items: center; justify-content: center; height: 100%; color: #64748b; }
 
 .code { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid #cbd5e1; }
 .bar { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border-bottom: 1px solid #cbd5e1; background: #e2e8f0; }
