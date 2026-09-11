@@ -10,6 +10,7 @@ import {
   isHtml,
   isText,
   STARTER_FILES,
+  Storage,
   toZip,
   WebFiles,
 } from "./files";
@@ -33,13 +34,19 @@ const WebEditor = () => {
   const [generation, setGeneration] = useState(0);
   const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([]);
   const [command, setCommand] = useState("");
+  // What the page keeps in localStorage; saved with the site. Held in a ref
+  // as well so a write does not rebuild (and so reload) the preview.
+  const [storage, setStorage] = useState<Storage>({});
+  const [reloads, setReloads] = useState(0);
 
   const filesRef = useRef(files);
+  const storageRef = useRef(storage);
   const consoleRef = useRef<HTMLDivElement>(null);
   const lastChangedAt = useRef(0);
   const previewRef = useRef<HTMLIFrameElement>(null);
 
   filesRef.current = files;
+  storageRef.current = storage;
 
   const names = useMemo(() => Object.keys(files).sort(), [files]);
 
@@ -68,9 +75,11 @@ const WebEditor = () => {
         case "load":
           try {
             const blob = message.file ?? (message.url ? await (await fetch(message.url)).blob() : undefined);
-            const next = blob ? await fromZip(blob) : structuredClone(STARTER_FILES);
+            const project = blob ? await fromZip(blob) : { files: structuredClone(STARTER_FILES), storage: {} };
+            const next = project.files;
 
             setFiles(next);
+            setStorage(project.storage);
             setActive(next["index.html"] ? "index.html" : Object.keys(next)[0]);
             setPreviewPage(next["index.html"] ? "index.html" : Object.keys(next).find(isHtml) ?? "index.html");
             if (message.readOnly !== undefined) setReadOnly(message.readOnly);
@@ -92,7 +101,11 @@ const WebEditor = () => {
             break;
           }
 
-          postToPage({ file: toZip(filesRef.current), requestId: message.requestId, type: "saved" });
+          postToPage({
+            file: toZip({ files: filesRef.current, storage: storageRef.current }),
+            requestId: message.requestId,
+            type: "saved",
+          });
           break;
         }
         case "setReadOnly":
@@ -116,24 +129,38 @@ const WebEditor = () => {
         const line = { level: String(event.data.level), text: String(event.data.text) };
 
         setConsoleLines((current) => [...current.slice(-(CONSOLE_CAP - 1)), line]);
+      } else if (event.data?.type === "preview:storage") {
+        setStorage({ ...(event.data.data as Storage) });
+        changed();
       }
     };
 
     window.addEventListener("message", listener);
 
     return () => window.removeEventListener("message", listener);
-  }, []);
+  }, [changed]);
 
   // The preview follows the files, a moment after the last keystroke; the
   // console starts over with it.
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setSrcdoc(buildPreview(files, previewPage));
+      setSrcdoc(buildPreview(files, previewPage, storageRef.current));
       setConsoleLines([]);
     }, PREVIEW_DELAY_MS);
 
     return () => window.clearTimeout(timer);
-  }, [files, previewPage]);
+  }, [files, previewPage, reloads]);
+
+  // Replaces DevTools > Application for a kid: forgets what the page saved
+  // and shows it again from scratch.
+  const clearStorage = () => {
+    if (!window.confirm("Forget everything this site saved in localStorage?")) return;
+
+    setStorage({});
+    storageRef.current = {};
+    setReloads((i) => i + 1);
+    changed();
+  };
 
   useEffect(() => {
     consoleRef.current?.scrollTo({ top: consoleRef.current.scrollHeight });
@@ -265,7 +292,15 @@ const WebEditor = () => {
         <div className="console-pane">
           <div className="console-header">
             <span>Console</span>
-            <button onClick={() => setConsoleLines([])} type="button">Clear</button>
+            <span>
+              <button onClick={() => setReloads((i) => i + 1)} title="Show the page again from the start" type="button">
+                Reload
+              </button>
+              <button onClick={clearStorage} title="Forget what the page saved in localStorage" type="button">
+                Clear saved data
+              </button>
+              <button onClick={() => setConsoleLines([])} type="button">Clear</button>
+            </span>
           </div>
           <div className="console-lines" ref={consoleRef}>
             {consoleLines.length === 0 && <span className="console-hint">console.log and errors from your page show here.</span>}

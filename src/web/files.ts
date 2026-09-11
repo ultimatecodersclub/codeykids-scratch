@@ -50,23 +50,40 @@ export const STARTER_FILES: WebFiles = {
   },
 };
 
-export const toZip = (files: WebFiles) => {
+export type Storage = Record<string, string>;
+export type WebProject = { files: WebFiles; storage: Storage };
+
+// What the page saved in localStorage travels with the site, out of the
+// kid's file list.
+const STORAGE_ENTRY = ".codeykids/storage.json";
+
+export const toZip = ({ files, storage }: WebProject) => {
   const entries: Record<string, Uint8Array> = {};
 
   for (const [name, file] of Object.entries(files)) {
     entries[name] = file.bytes ?? strToU8(file.text ?? "");
   }
+  if (Object.keys(storage).length > 0) entries[STORAGE_ENTRY] = strToU8(JSON.stringify(storage));
 
   return new Blob([zipSync(entries, { level: 6 })], { type: "application/zip" });
 };
 
-export const fromZip = async (blob: Blob): Promise<WebFiles> => {
+export const fromZip = async (blob: Blob): Promise<WebProject> => {
   const entries = unzipSync(new Uint8Array(await blob.arrayBuffer()));
   const files: WebFiles = {};
+  let storage: Storage = {};
 
   for (const [path, bytes] of Object.entries(entries)) {
     // Folders and macOS resource forks are not files of the site.
     if (path.endsWith("/") || path.startsWith("__MACOSX/")) continue;
+    if (path === STORAGE_ENTRY) {
+      try {
+        storage = JSON.parse(strFromU8(bytes)) as Storage;
+      } catch {
+        storage = {};
+      }
+      continue;
+    }
 
     // A zip made elsewhere may wrap the site in one top folder.
     const name = path.replace(/^[^/]+\/(?=[^/]+$)/, "");
@@ -74,7 +91,7 @@ export const fromZip = async (blob: Blob): Promise<WebFiles> => {
     files[name] = isText(name) ? { text: strFromU8(bytes) } : { bytes };
   }
 
-  return Object.keys(files).length > 0 ? files : structuredClone(STARTER_FILES);
+  return { files: Object.keys(files).length > 0 ? files : structuredClone(STARTER_FILES), storage };
 };
 
 export const bytesOf = (files: WebFiles) =>
@@ -96,9 +113,34 @@ const dataURL = (name: string, file: WebFile) => {
 // Runs first inside the preview (kept free of backslashes: a template literal
 // eats them): console output, errors and unhandled rejections go to the
 // editor's console pane, and a line typed there is run in the page.
-const consoleScript = `<script>
+const consoleScript = (storage: Record<string, string>) => `<script>
 (() => {
   const post = (message) => window.parent.postMessage(message, "*");
+  // localStorage and sessionStorage throw in a sandboxed page, so stand-ins
+  // take their place: localStorage is kept by the editor with the project,
+  // sessionStorage lives as long as the page. Both take item calls and
+  // property style (localStorage.score = 3).
+  const makeStorage = (seed, remember) => {
+    const items = Object.assign({}, seed);
+    const sync = () => { if (remember) post({ data: Object.assign({}, items), type: "preview:storage" }); };
+    const api = {
+      getItem: (key) => (Object.prototype.hasOwnProperty.call(items, String(key)) ? items[String(key)] : null),
+      setItem: (key, value) => { items[String(key)] = String(value); sync(); },
+      removeItem: (key) => { delete items[String(key)]; sync(); },
+      clear: () => { for (const key of Object.keys(items)) delete items[key]; sync(); },
+      key: (index) => Object.keys(items)[index] ?? null,
+    };
+    return new Proxy(api, {
+      get: (target, prop) => (prop === "length" ? Object.keys(items).length : prop in target ? target[prop] : api.getItem(prop) ?? undefined),
+      set: (target, prop, value) => { api.setItem(prop, value); return true; },
+      deleteProperty: (target, prop) => { api.removeItem(prop); return true; },
+      has: (target, prop) => prop in target || Object.prototype.hasOwnProperty.call(items, prop),
+      ownKeys: () => Object.keys(items),
+      getOwnPropertyDescriptor: (target, prop) => (Object.prototype.hasOwnProperty.call(items, prop) ? { configurable: true, enumerable: true, value: items[prop], writable: true } : undefined),
+    });
+  };
+  Object.defineProperty(window, "localStorage", { configurable: true, value: makeStorage(${JSON.stringify(storage)}, true) });
+  Object.defineProperty(window, "sessionStorage", { configurable: true, value: makeStorage({}, false) });
   const show = (value) => {
     if (value === undefined) return "undefined";
     if (value instanceof Error) return value.name + ": " + value.message;
@@ -170,7 +212,7 @@ const previewScript = (pages: string[], current: string) => `<script>
 // preview needs no server: stylesheets and scripts become inline tags and
 // images become data URLs. Links to the site's other pages stay as they are
 // and are handled by the preview script.
-export const buildPreview = (files: WebFiles, page: string) => {
+export const buildPreview = (files: WebFiles, page: string, storage: Record<string, string> = {}) => {
   let html = files[page]?.text ?? "";
 
   html = html.replace(
@@ -205,7 +247,7 @@ export const buildPreview = (files: WebFiles, page: string) => {
   html = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${script}</body>`) : `${html}${script}`;
 
   // Before anything of the page runs, so its first console.log is caught.
-  return /<head[^>]*>/i.test(html)
-    ? html.replace(/<head[^>]*>/i, (tag) => `${tag}${consoleScript}`)
-    : `${consoleScript}${html}`;
+  const prelude = consoleScript(storage);
+
+  return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (tag) => `${tag}${prelude}`) : `${prelude}${html}`;
 };
