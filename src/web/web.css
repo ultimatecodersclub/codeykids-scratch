@@ -27,6 +27,24 @@ button { font: inherit; cursor: pointer; }
 .preview iframe { flex: 1; border: 0; width: 100%; background: #fff; }
 .preview select { font: inherit; }
 
+.console-pane { display: flex; flex-direction: column; height: 30%; min-height: 120px; border-top: 1px solid #cbd5e1; background: #0f172a; color: #e2e8f0; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.console-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 10px; background: #1e293b; color: #cbd5e1; font: 600 12px system-ui, sans-serif; }
+.console-header button { border: 0; background: none; color: #94a3b8; font: inherit; padding: 2px 6px; border-radius: 4px; }
+.console-header button:hover { background: #334155; color: #f1f5f9; }
+.console-lines { flex: 1; overflow: auto; padding: 6px 10px; white-space: pre-wrap; word-break: break-word; }
+.console-hint { color: #64748b; }
+.console-line { padding: 1px 0; border-bottom: 1px solid #1e293b; }
+.console-line.error { color: #fca5a5; }
+.console-line.warn { color: #fcd34d; }
+.console-line.info, .console-line.debug { color: #bae6fd; }
+.console-line.result { color: #94a3b8; }
+.console-line.input { color: #93c5fd; }
+.console-line.input::before { content: "› "; color: #64748b; }
+.console-input { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-top: 1px solid #1e293b; }
+.console-input span { color: #64748b; }
+.console-input input { flex: 1; border: 0; background: none; color: #f1f5f9; font: inherit; outline: none; }
+.console-input input::placeholder { color: #475569; }
+
 /* Light and legible whatever the host's colour scheme is. */
 .editor .cm-editor { background: #fff; color: #1e293b; }
 .editor .cm-gutters { background: #f1f5f9; color: #94a3b8; border-right: 1px solid #e2e8f0; }

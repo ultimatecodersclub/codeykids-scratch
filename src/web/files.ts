@@ -93,6 +93,37 @@ const dataURL = (name: string, file: WebFile) => {
   return `data:${type};base64,${btoa(binary)}`;
 };
 
+// Runs first inside the preview (kept free of backslashes: a template literal
+// eats them): console output, errors and unhandled rejections go to the
+// editor's console pane, and a line typed there is run in the page.
+const consoleScript = `<script>
+(() => {
+  const post = (message) => window.parent.postMessage(message, "*");
+  const show = (value) => {
+    if (value === undefined) return "undefined";
+    if (value instanceof Error) return value.name + ": " + value.message;
+    if (typeof value === "string") return value;
+    if (typeof value === "function") return value.toString();
+    try { const text = JSON.stringify(value, null, 1); return text === undefined ? String(value) : text; } catch (e) { return String(value); }
+  };
+  const send = (level, args) => post({ level, text: args.map(show).join(" "), type: "preview:console" });
+  const native = {};
+  for (const level of ["log", "info", "warn", "error", "debug"]) {
+    native[level] = console[level].bind(console);
+    console[level] = (...args) => { native[level](...args); send(level, args); };
+  }
+  window.addEventListener("error", (e) => {
+    const where = e.filename && !e.filename.startsWith("about:") ? e.filename : "this page";
+    send("error", [e.message + " (" + where + (e.lineno ? ", line " + e.lineno : "") + ")"]);
+  });
+  window.addEventListener("unhandledrejection", (e) => send("error", ["Uncaught (in promise) " + show(e.reason)]));
+  window.addEventListener("message", (e) => {
+    if (e.source !== window.parent || !e.data || e.data.type !== "preview:eval") return;
+    try { send("result", [(0, eval)(e.data.code)]); } catch (error) { send("error", [error]); }
+  });
+})();
+</script>`;
+
 // Runs inside the preview (kept free of backslashes: a template literal eats
 // them): a click on a link to another page of the site
 // asks the editor to show that page (a sandboxed page cannot load a blob of
@@ -151,9 +182,10 @@ export const buildPreview = (files: WebFiles, page: string) => {
   );
   html = html.replace(
     /<script\b([^>]*)\bsrc=["']([^"']+)["']([^>]*)><\/script>/gi,
+    // The sourceURL comment makes an error name the kid's file and its line.
     (tag, before: string, src: string, after: string) =>
       files[src]?.text !== undefined
-        ? `<script${before}${after}>${files[src].text}</script>`
+        ? `<script${before}${after}>${files[src].text}\n//# sourceURL=${src}</script>`
         : tag,
   );
   html = html.replace(
@@ -170,5 +202,10 @@ export const buildPreview = (files: WebFiles, page: string) => {
 
   const script = previewScript(Object.keys(files).filter(isHtml), page);
 
-  return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${script}</body>`) : `${html}${script}`;
+  html = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${script}</body>`) : `${html}${script}`;
+
+  // Before anything of the page runs, so its first console.log is caught.
+  return /<head[^>]*>/i.test(html)
+    ? html.replace(/<head[^>]*>/i, (tag) => `${tag}${consoleScript}`)
+    : `${consoleScript}${html}`;
 };

@@ -16,6 +16,9 @@ import {
 import "./web.css";
 
 const SIZE_LIMIT = 20 * 1024 * 1024;
+const CONSOLE_CAP = 500;
+
+type ConsoleLine = { level: string; text: string };
 const PREVIEW_DELAY_MS = 400;
 const CHANGED_THROTTLE_MS = 1000;
 
@@ -28,8 +31,11 @@ const WebEditor = () => {
   // Bumped on every load so the code editor takes the new document even when
   // the active file keeps its name.
   const [generation, setGeneration] = useState(0);
+  const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([]);
+  const [command, setCommand] = useState("");
 
   const filesRef = useRef(files);
+  const consoleRef = useRef<HTMLDivElement>(null);
   const lastChangedAt = useRef(0);
   const previewRef = useRef<HTMLIFrameElement>(null);
 
@@ -96,16 +102,21 @@ const WebEditor = () => {
     });
   }, []);
 
-  // The preview script asks for another page of the site when a link to it
-  // is clicked or a form is sent.
+  // The preview's scripts ask for another page of the site when a link to it
+  // is clicked or a form is sent, and forward console output and errors.
   useEffect(() => {
     const listener = (event: MessageEvent) => {
       if (event.source !== previewRef.current?.contentWindow) return;
-      if (event.data?.type !== "preview:navigate") return;
 
-      const page = String(event.data.page);
+      if (event.data?.type === "preview:navigate") {
+        const page = String(event.data.page);
 
-      if (isHtml(page) && filesRef.current[page]) setPreviewPage(page);
+        if (isHtml(page) && filesRef.current[page]) setPreviewPage(page);
+      } else if (event.data?.type === "preview:console") {
+        const line = { level: String(event.data.level), text: String(event.data.text) };
+
+        setConsoleLines((current) => [...current.slice(-(CONSOLE_CAP - 1)), line]);
+      }
     };
 
     window.addEventListener("message", listener);
@@ -113,12 +124,31 @@ const WebEditor = () => {
     return () => window.removeEventListener("message", listener);
   }, []);
 
-  // The preview follows the files, a moment after the last keystroke.
+  // The preview follows the files, a moment after the last keystroke; the
+  // console starts over with it.
   useEffect(() => {
-    const timer = window.setTimeout(() => setSrcdoc(buildPreview(files, previewPage)), PREVIEW_DELAY_MS);
+    const timer = window.setTimeout(() => {
+      setSrcdoc(buildPreview(files, previewPage));
+      setConsoleLines([]);
+    }, PREVIEW_DELAY_MS);
 
     return () => window.clearTimeout(timer);
   }, [files, previewPage]);
+
+  useEffect(() => {
+    consoleRef.current?.scrollTo({ top: consoleRef.current.scrollHeight });
+  }, [consoleLines]);
+
+  // A line typed into the console runs in the page, like a browser's own.
+  const runCommand = () => {
+    const code = command.trim();
+
+    if (!code) return;
+
+    setConsoleLines((current) => [...current.slice(-(CONSOLE_CAP - 1)), { level: "input", text: code }]);
+    previewRef.current?.contentWindow?.postMessage({ code, type: "preview:eval" }, "*");
+    setCommand("");
+  };
 
   const addFile = () => {
     const name = window.prompt("File name, for example about.html or style.css")?.trim();
@@ -232,6 +262,35 @@ const WebEditor = () => {
           srcDoc={srcdoc}
           title="Preview"
         />
+        <div className="console-pane">
+          <div className="console-header">
+            <span>Console</span>
+            <button onClick={() => setConsoleLines([])} type="button">Clear</button>
+          </div>
+          <div className="console-lines" ref={consoleRef}>
+            {consoleLines.length === 0 && <span className="console-hint">console.log and errors from your page show here.</span>}
+            {consoleLines.map((line, i) => (
+              <div className={`console-line ${line.level}`} key={i}>
+                {line.text}
+              </div>
+            ))}
+          </div>
+          <form
+            className="console-input"
+            onSubmit={(e) => {
+              e.preventDefault();
+              runCommand();
+            }}
+          >
+            <span>›</span>
+            <input
+              aria-label="Run JavaScript in the page"
+              onChange={(e) => setCommand(e.target.value)}
+              placeholder="Type JavaScript and press Enter"
+              value={command}
+            />
+          </form>
+        </div>
       </section>
     </div>
   );
