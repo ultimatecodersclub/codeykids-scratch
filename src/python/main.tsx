@@ -10,6 +10,9 @@ import "./python.css";
 const SIZE_LIMIT = 20 * 1024 * 1024;
 const CHANGED_THROTTLE_MS = 1000;
 const TURTLE_TARGET = "turtle";
+// A runaway loop would otherwise grow the console without end.
+const CONSOLE_CAP = 2000;
+const TRIMMED: Line = { kind: "info", text: "… earlier output trimmed …\n" };
 
 const STARTER = `# Write your Python here, then press Run.
 name = input("What is your name? ")
@@ -44,7 +47,15 @@ const PythonEditor = () => {
 
   codeRef.current = code;
 
-  const append = useCallback((line: Line) => setLines((current) => [...current, line]), []);
+  const append = useCallback(
+    (line: Line) =>
+      setLines((current) =>
+        current.length < CONSOLE_CAP
+          ? [...current, line]
+          : [TRIMMED, ...current.slice(current.length - CONSOLE_CAP + 2), line],
+      ),
+    [],
+  );
 
   const onChange = useCallback((text: string) => {
     setCode(text);
