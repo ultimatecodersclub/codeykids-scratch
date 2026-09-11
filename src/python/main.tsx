@@ -13,10 +13,10 @@ const TURTLE_TARGET = "turtle";
 // A runaway loop would otherwise grow the console without end.
 const CONSOLE_CAP = 2000;
 
-type Line = { kind: "error" | "info" | "out"; text: string };
+type Line = { id: number; kind: "error" | "info" | "out"; text: string };
 type Pending = { prompt: string; resolve: (value: string) => void };
 
-const TRIMMED: Line = { kind: "info", text: "… earlier output trimmed …\n" };
+const TRIMMED: Omit<Line, "id"> = { kind: "info", text: "… earlier output trimmed …\n" };
 
 const PythonEditor = () => {
   const [files, setFiles] = useState<PythonFiles>(starterFiles);
@@ -42,15 +42,19 @@ const PythonEditor = () => {
     [files],
   );
 
-  const append = useCallback(
-    (line: Line) =>
-      setLines((current) =>
-        current.length < CONSOLE_CAP
-          ? [...current, line]
-          : [TRIMMED, ...current.slice(current.length - CONSOLE_CAP + 2), line],
-      ),
-    [],
-  );
+  const lineId = useRef(0);
+
+  // Past the cap the console drops down to half, so a runaway loop costs one
+  // copy per thousand lines rather than one per line.
+  const append = useCallback((line: Omit<Line, "id">) => {
+    const next = { ...line, id: (lineId.current += 1) };
+
+    setLines((current) =>
+      current.length < CONSOLE_CAP
+        ? [...current, next]
+        : [{ ...TRIMMED, id: (lineId.current += 1) }, ...current.slice(-(CONSOLE_CAP / 2)), next],
+    );
+  }, []);
 
   const changed = useCallback(() => {
     const now = Date.now();
@@ -131,6 +135,12 @@ const PythonEditor = () => {
       {
         files: texts,
         input: (prompt) => new Promise((resolve) => setPending({ prompt, resolve })),
+        // A file the program wrote shows up in the list and saves with the
+        // project.
+        onFileWrite: (name, text) => {
+          setFiles((current) => ({ ...current, [name]: { text } }));
+          changed();
+        },
         output: (text) => append({ kind: "out", text }),
         turtleSize: size,
         turtleTarget: TURTLE_TARGET,
@@ -143,7 +153,11 @@ const PythonEditor = () => {
 
     if (!error) append({ kind: "info", text: "Finished." });
     else if (error.message === "Stopped") append({ kind: "info", text: "Stopped." });
-    else append({ kind: "error", text: error.line ? `Line ${error.line}: ${error.message}` : error.message });
+    else
+      append({
+        kind: "error",
+        text: error.line ? `${error.file ? `${error.file}, line` : "Line"} ${error.line}: ${error.message}` : error.message,
+      });
   };
 
   const stop = () => {
@@ -196,11 +210,12 @@ const PythonEditor = () => {
   };
 
   const activeFile = files[active];
-  const hasOthers = names.length > 1;
+  // A read-only single-file project needs no list.
+  const showFiles = names.length > 1 || !readOnly;
 
   return (
-    <div className={hasOthers || !readOnly ? "layout with-files" : "layout"}>
-      {(hasOthers || !readOnly) && (
+    <div className={showFiles ? "layout with-files" : "layout"}>
+      {showFiles && (
         <aside className="files">
           <div className="files-header">
             <span>Files</span>
@@ -264,8 +279,8 @@ const PythonEditor = () => {
       <section className="output">
         <div className="turtle" id={TURTLE_TARGET} ref={turtleRef} />
         <div className="console" ref={consoleRef}>
-          {lines.map((line, i) => (
-            <span className={line.kind} key={i}>
+          {lines.map((line) => (
+            <span className={line.kind} key={line.id}>
               {line.text}
             </span>
           ))}

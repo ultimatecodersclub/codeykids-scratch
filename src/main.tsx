@@ -21,26 +21,44 @@ const WrappedGui = AppStateHOC(GUI);
 const LOGO = "/codeykids-logo.png";
 
 // The published GUI picks the menubar image from its `platform` and ignores
-// the `logo` prop, so the image is swapped in the DOM instead, and again
-// whenever the menubar is rendered afresh. Scratch's trademark guidance: say
-// "based on Scratch", never show its logo.
-const useCodeyKidsLogo = () => {
+// the `logo` prop, so the image is swapped in the DOM instead: once when the
+// menubar is there, and again if the GUI ever sets it back or renders the
+// menubar afresh (which only player mode toggling does). Scratch's trademark
+// guidance: say "based on Scratch", never show its logo.
+const useCodeyKidsLogo = (isPlayerOnly: boolean) => {
   useEffect(() => {
+    let watched: HTMLImageElement | undefined;
+    const imageObserver = new MutationObserver(() => swap());
     const swap = () => {
       const img = document.getElementById("logo_img");
 
-      if (img instanceof HTMLImageElement && !img.src.endsWith(LOGO)) {
+      if (!(img instanceof HTMLImageElement)) return false;
+      if (!img.src.endsWith(LOGO)) {
         img.src = LOGO;
         img.alt = "CodeyKids";
       }
+      if (watched !== img) {
+        imageObserver.disconnect();
+        imageObserver.observe(img, { attributeFilter: ["src"], attributes: true });
+        watched = img;
+      }
+
+      return true;
     };
-    const observer = new MutationObserver(swap);
 
-    swap();
-    observer.observe(document.body, { childList: true, subtree: true });
+    // The menubar mounts after the GUI's first render; watch only until it is
+    // there, so block editing is not taxed for the rest of the session.
+    const bodyObserver = new MutationObserver(() => {
+      if (swap()) bodyObserver.disconnect();
+    });
 
-    return () => observer.disconnect();
-  }, []);
+    if (!swap()) bodyObserver.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      bodyObserver.disconnect();
+      imageObserver.disconnect();
+    };
+  }, [isPlayerOnly]);
 };
 
 const App = () => {
@@ -48,14 +66,13 @@ const App = () => {
 
   const { onVmInit } = useEditorBridge({ setIsPlayerOnly });
 
-  useCodeyKidsLogo();
+  useCodeyKidsLogo(isPlayerOnly);
 
   return (
     <WrappedGui
       canEditTitle={false}
       canManageFiles
       isPlayerOnly={isPlayerOnly}
-      logo={LOGO}
       onProjectLoaded={() => postToPage({ type: "ready" })}
       onVmInit={onVmInit}
       // "0" is the GUI's bundled default project (the cat). Without a project

@@ -11,17 +11,21 @@ import {
   isText,
   STARTER_FILES,
   Storage,
+  storageBytes,
   toZip,
   WebFiles,
 } from "./files";
 import "./web.css";
 
 const SIZE_LIMIT = 20 * 1024 * 1024;
-const CONSOLE_CAP = 500;
-
-type ConsoleLine = { level: string; text: string };
 const PREVIEW_DELAY_MS = 400;
 const CHANGED_THROTTLE_MS = 1000;
+// A page that saves state on every frame must not push the autosave back for
+// ever: its writes count as one change a minute at most.
+const STORAGE_CHANGED_THROTTLE_MS = 60_000;
+const CONSOLE_CAP = 500;
+
+type ConsoleLine = { id: number; level: string; text: string };
 
 const WebEditor = () => {
   const [files, setFiles] = useState<WebFiles>(() => structuredClone(STARTER_FILES));
@@ -32,21 +36,31 @@ const WebEditor = () => {
   // Bumped on every load so the code editor takes the new document even when
   // the active file keeps its name.
   const [generation, setGeneration] = useState(0);
+  const [reloads, setReloads] = useState(0);
   const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([]);
   const [command, setCommand] = useState("");
-  // What the page keeps in localStorage; saved with the site. Held in a ref
-  // as well so a write does not rebuild (and so reload) the preview.
-  const [storage, setStorage] = useState<Storage>({});
-  const [reloads, setReloads] = useState(0);
 
   const filesRef = useRef(files);
-  const storageRef = useRef(storage);
-  const consoleRef = useRef<HTMLDivElement>(null);
+  const readOnlyRef = useRef(readOnly);
+  const previewPageRef = useRef(previewPage);
+  // What the page keeps in localStorage; saved with the site. A ref, not
+  // state: a write must not rebuild (and so reload) the preview.
+  const storageRef = useRef<Storage>({});
+  // Each build gets an epoch; messages from an older page are dropped.
+  const epochRef = useRef(0);
   const lastChangedAt = useRef(0);
+  const lastStorageChangedAt = useRef(0);
   const previewRef = useRef<HTMLIFrameElement>(null);
+  const consoleRef = useRef<HTMLDivElement>(null);
+  // Console output arrives one message per line; lines are batched into one
+  // render a frame or so.
+  const pendingLines = useRef<ConsoleLine[]>([]);
+  const flushTimer = useRef<number>();
+  const lineId = useRef(0);
 
   filesRef.current = files;
-  storageRef.current = storage;
+  readOnlyRef.current = readOnly;
+  previewPageRef.current = previewPage;
 
   const names = useMemo(() => Object.keys(files).sort(), [files]);
 
@@ -66,6 +80,28 @@ const WebEditor = () => {
     [changed],
   );
 
+  const pushLine = useCallback((level: string, text: string) => {
+    pendingLines.current.push({ id: (lineId.current += 1), level, text });
+
+    if (flushTimer.current !== undefined) return;
+
+    flushTimer.current = window.setTimeout(() => {
+      flushTimer.current = undefined;
+
+      const batch = pendingLines.current;
+
+      pendingLines.current = [];
+      setConsoleLines((current) => [...current, ...batch].slice(-CONSOLE_CAP));
+    }, 16);
+  }, []);
+
+  // The page is shown again from the start: blank first, so the old page is
+  // gone and the rebuilt document is a change even when nothing else moved.
+  const reload = useCallback(() => {
+    setSrcdoc("");
+    setReloads((i) => i + 1);
+  }, []);
+
   // The page drives loading and saving over postMessage.
   useEffect(() => {
     postToPage({ type: "ready" });
@@ -78,10 +114,13 @@ const WebEditor = () => {
             const project = blob ? await fromZip(blob) : { files: structuredClone(STARTER_FILES), storage: {} };
             const next = project.files;
 
+            // The old page goes away before the new project is in, so
+            // nothing it still does lands on the new one.
+            setSrcdoc("");
+            storageRef.current = project.storage;
             setFiles(next);
-            setStorage(project.storage);
             setActive(next["index.html"] ? "index.html" : Object.keys(next)[0]);
-            setPreviewPage(next["index.html"] ? "index.html" : Object.keys(next).find(isHtml) ?? "index.html");
+            setPreviewPage(next["index.html"] ? "index.html" : (Object.keys(next).find(isHtml) ?? "index.html"));
             if (message.readOnly !== undefined) setReadOnly(message.readOnly);
             setGeneration((i) => i + 1);
             postToPage({ type: "loaded" });
@@ -90,11 +129,11 @@ const WebEditor = () => {
           }
           break;
         case "save": {
-          const size = bytesOf(filesRef.current);
+          const size = bytesOf(filesRef.current) + storageBytes(storageRef.current);
 
           if (size > SIZE_LIMIT) {
             postToPage({
-              message: `The site is ${Math.round(size / 1024 / 1024)} MB; the limit is 20 MB.`,
+              message: `The site is ${Math.round(size / 1024 / 1024)} MB with what it saved; the limit is 20 MB.`,
               requestId: message.requestId,
               type: "saveFailed",
             });
@@ -115,22 +154,34 @@ const WebEditor = () => {
     });
   }, []);
 
-  // The preview's scripts ask for another page of the site when a link to it
-  // is clicked or a form is sent, and forward console output and errors.
+  // The prelude in the preview asks for another page of the site when a link
+  // to it is clicked or a form is sent, forwards console output and errors,
+  // and reports what the page saved.
   useEffect(() => {
     const listener = (event: MessageEvent) => {
       if (event.source !== previewRef.current?.contentWindow) return;
+      if (event.data?.epoch !== epochRef.current) return;
 
-      if (event.data?.type === "preview:navigate") {
+      if (event.data.type === "preview:navigate") {
         const page = String(event.data.page);
 
-        if (isHtml(page) && filesRef.current[page]) setPreviewPage(page);
-      } else if (event.data?.type === "preview:console") {
-        const line = { level: String(event.data.level), text: String(event.data.text) };
+        if (!isHtml(page) || !filesRef.current[page]) return;
+        if (page === previewPageRef.current) reload();
+        else setPreviewPage(page);
+      } else if (event.data.type === "preview:console") {
+        pushLine(String(event.data.level), String(event.data.text));
+      } else if (event.data.type === "preview:storage") {
+        const data = event.data.data as Storage;
 
-        setConsoleLines((current) => [...current.slice(-(CONSOLE_CAP - 1)), line]);
-      } else if (event.data?.type === "preview:storage") {
-        setStorage({ ...(event.data.data as Storage) });
+        if (JSON.stringify(data) === JSON.stringify(storageRef.current)) return;
+
+        storageRef.current = { ...data };
+
+        const now = Date.now();
+
+        if (readOnlyRef.current || now - lastStorageChangedAt.current < STORAGE_CHANGED_THROTTLE_MS) return;
+
+        lastStorageChangedAt.current = now;
         changed();
       }
     };
@@ -138,33 +189,36 @@ const WebEditor = () => {
     window.addEventListener("message", listener);
 
     return () => window.removeEventListener("message", listener);
-  }, [changed]);
+  }, [changed, pushLine, reload]);
 
   // The preview follows the files, a moment after the last keystroke; the
   // console starts over with it.
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setSrcdoc(buildPreview(files, previewPage, storageRef.current));
+      epochRef.current += 1;
+      pendingLines.current = [];
       setConsoleLines([]);
+      setSrcdoc(buildPreview(files, previewPage, storageRef.current, epochRef.current));
     }, PREVIEW_DELAY_MS);
 
     return () => window.clearTimeout(timer);
   }, [files, previewPage, reloads]);
+
+  useEffect(() => () => window.clearTimeout(flushTimer.current), []);
+
+  useEffect(() => {
+    consoleRef.current?.scrollTo({ top: consoleRef.current.scrollHeight });
+  }, [consoleLines]);
 
   // Replaces DevTools > Application for a kid: forgets what the page saved
   // and shows it again from scratch.
   const clearStorage = () => {
     if (!window.confirm("Forget everything this site saved in localStorage?")) return;
 
-    setStorage({});
     storageRef.current = {};
-    setReloads((i) => i + 1);
-    changed();
+    reload();
+    if (!readOnly) changed();
   };
-
-  useEffect(() => {
-    consoleRef.current?.scrollTo({ top: consoleRef.current.scrollHeight });
-  }, [consoleLines]);
 
   // A line typed into the console runs in the page, like a browser's own.
   const runCommand = () => {
@@ -172,7 +226,7 @@ const WebEditor = () => {
 
     if (!code) return;
 
-    setConsoleLines((current) => [...current.slice(-(CONSOLE_CAP - 1)), { level: "input", text: code }]);
+    pushLine("input", code);
     previewRef.current?.contentWindow?.postMessage({ code, type: "preview:eval" }, "*");
     setCommand("");
   };
@@ -293,7 +347,7 @@ const WebEditor = () => {
           <div className="console-header">
             <span>Console</span>
             <span>
-              <button onClick={() => setReloads((i) => i + 1)} title="Show the page again from the start" type="button">
+              <button onClick={reload} title="Show the page again from the start" type="button">
                 Reload
               </button>
               <button onClick={clearStorage} title="Forget what the page saved in localStorage" type="button">
@@ -304,8 +358,8 @@ const WebEditor = () => {
           </div>
           <div className="console-lines" ref={consoleRef}>
             {consoleLines.length === 0 && <span className="console-hint">console.log and errors from your page show here.</span>}
-            {consoleLines.map((line, i) => (
-              <div className={`console-line ${line.level}`} key={i}>
+            {consoleLines.map((line) => (
+              <div className={`console-line ${line.level}`} key={line.id}>
                 {line.text}
               </div>
             ))}
