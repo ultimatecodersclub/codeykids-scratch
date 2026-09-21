@@ -7,6 +7,8 @@ export type PageToEditor =
   // already has the bytes passes `file` and skips CORS on this origin.
   | { type: "load"; file?: Blob; url?: string | null; readOnly?: boolean }
   | { type: "save"; requestId: string }
+  // A picture of the work as it stands, for the project card.
+  | { type: "snapshot"; requestId: string }
   | { type: "setReadOnly"; value: boolean };
 
 export type EditorToPage =
@@ -15,7 +17,9 @@ export type EditorToPage =
   | { type: "loadFailed"; message: string }
   | { type: "changed" }
   | { type: "saved"; requestId: string; file: Blob }
-  | { type: "saveFailed"; requestId: string; message: string };
+  | { type: "saveFailed"; requestId: string; message: string }
+  | { type: "snapshot"; requestId: string; image: Blob }
+  | { type: "snapshotFailed"; requestId: string; message: string };
 
 // Origins allowed to drive the editor. `*` only for the local spike host page.
 const allowedOrigins = (import.meta.env.VITE_ALLOWED_ORIGINS ?? "*")
@@ -46,4 +50,14 @@ export const listenToPage = (handler: (message: PageToEditor) => void) => {
   window.addEventListener("message", listener);
 
   return () => window.removeEventListener("message", listener);
+};
+
+// Answers a `snapshot` with the picture, or says why there is none. The page
+// treats either as final, so this never throws.
+export const answerSnapshot = async (requestId: string, take: () => Promise<Blob>) => {
+  try {
+    postToPage({ image: await take(), requestId, type: "snapshot" });
+  } catch (error) {
+    postToPage({ message: String(error), requestId, type: "snapshotFailed" });
+  }
 };

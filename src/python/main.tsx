@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
-import { listenToPage, postToPage } from "../bridge";
+import { answerSnapshot, listenToPage, postToPage } from "../bridge";
+import { codeCard, pictureOf } from "../snapshot";
 import { CodeEditor } from "../web/CodeEditor";
 import { bytesOf, fromBytes, isText, MAIN, PythonFiles, starterFiles, toBlob } from "./project";
 import { RunError, runPython } from "./runner";
@@ -101,6 +102,17 @@ const PythonEditor = () => {
           postToPage({ file: toBlob(filesRef.current), requestId: message.requestId, type: "saved" });
           break;
         }
+        case "snapshot":
+          void answerSnapshot(message.requestId, () => {
+            const drawn = [...(turtleRef.current?.querySelectorAll("canvas") ?? [])];
+
+            // Skulpt stacks a canvas per layer; together they are the
+            // drawing. A program that never drew shows its code instead.
+            return drawn.length > 0
+              ? pictureOf(drawn.map((canvas) => ({ height: canvas.height, source: canvas, width: canvas.width })))
+              : codeCard({ accent: "#DBFF00", lines: (filesRef.current[MAIN]?.text ?? "").split("\n"), title: MAIN });
+          });
+          break;
         case "setReadOnly":
           setReadOnly(message.value);
           break;
