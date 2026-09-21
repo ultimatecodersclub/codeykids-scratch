@@ -9,6 +9,12 @@ import { useEditorBridge } from "./useEditorBridge";
 export type ScratchVM = {
   loadProject: (input: ArrayBuffer | string | object) => Promise<void>;
   saveProjectSb3: () => Promise<Blob>;
+  // scratch-render: the callback gets the stage as a data URL at its next
+  // draw.
+  renderer?: {
+    draw: () => void;
+    requestSnapshot: (callback: (dataURL: string) => void) => void;
+  };
   runtime: {
     on: (event: string, listener: () => void) => void;
     off: (event: string, listener: () => void) => void;

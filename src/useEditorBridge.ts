@@ -1,10 +1,33 @@
 import { useEffect, useRef } from "react";
 
-import { listenToPage, PageToEditor, postToPage } from "./bridge";
+import { answerSnapshot, listenToPage, PageToEditor, postToPage } from "./bridge";
 import type { ScratchVM } from "./main";
+import { loadImage, pictureOf } from "./snapshot";
 
 const PROJECT_CHANGED = "PROJECT_CHANGED";
 const CHANGED_THROTTLE_MS = 1000;
+const SNAPSHOT_TIMEOUT_MS = 3000;
+
+// The stage as the renderer draws it now, sprites and backdrop and pen.
+const pictureOfStage = async (vm: ScratchVM | null) => {
+  const renderer = vm?.renderer;
+
+  if (!renderer) throw new Error("The stage is not ready");
+
+  const dataURL = await new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("The stage did not draw")), SNAPSHOT_TIMEOUT_MS);
+
+    renderer.requestSnapshot((url) => {
+      clearTimeout(timer);
+      resolve(url);
+    });
+    // A project that is not running draws nothing on its own.
+    renderer.draw();
+  });
+  const image = await loadImage(dataURL);
+
+  return pictureOf([{ height: image.naturalHeight, source: image, width: image.naturalWidth }]);
+};
 
 // Owns the page-facing side of the editor: it takes the VM from the GUI's
 // onVmInit, reports edits, and answers the page's load/save messages.
@@ -97,6 +120,9 @@ export const useEditorBridge = ({
           break;
         case "save":
           void save(message);
+          break;
+        case "snapshot":
+          void answerSnapshot(message.requestId, () => pictureOfStage(vmRef.current));
           break;
         case "setReadOnly":
           setIsPlayerOnly(message.value);

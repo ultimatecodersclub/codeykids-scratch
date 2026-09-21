@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
-import { listenToPage, postToPage } from "../bridge";
+import { answerSnapshot, listenToPage, postToPage } from "../bridge";
+import { codeCard, pictureOfPage } from "../snapshot";
 import { CodeEditor } from "./CodeEditor";
 import {
   buildPreview,
@@ -147,6 +148,20 @@ const WebEditor = () => {
           });
           break;
         }
+        case "snapshot":
+          void answerSnapshot(message.requestId, async () => {
+            const files = filesRef.current;
+            const page = files["index.html"] ? "index.html" : (Object.keys(files).find(isHtml) ?? "index.html");
+
+            try {
+              return await pictureOfPage(buildPreview(files, page));
+            } catch {
+              // A browser that will not read the drawn page back still gets a
+              // cover: the page's markup, as the kid sees it in the editor.
+              return codeCard({ accent: "#4EAEDA", lines: (files[page]?.text ?? "").split("\n"), title: page });
+            }
+          });
+          break;
         case "setReadOnly":
           setReadOnly(message.value);
           break;
