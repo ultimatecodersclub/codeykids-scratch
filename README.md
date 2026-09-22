@@ -48,6 +48,7 @@ iframe):
 | `{ type: "save", requestId }` | Ask for the current project as a Blob (`.sb3`, a zip of the site, or `main.py` or a zip for Python). The Blob is a `File` with a name when the extension matters. |
 | `{ type: "snapshot", requestId }` | Ask for a picture of the work as it stands, for the project card: the Scratch stage, the turtle drawing (or the first lines of `main.py` when nothing was drawn), the site's first page as written. |
 | `{ type: "setReadOnly", value }` | Switch between the editor and player-only mode. |
+| `{ type: "menu", action, value? }` | Scratch only. A pick from the menu the page draws in place of Scratch's menubar: `new`, `tutorials`, `debug`, `restore`, `turbo` (value: on), `language` (value: a code), `colorMode` (`default` or `high-contrast`), `theme` (`default` or `cat-blocks`). |
 
 Messages the editor sends to the lesson page:
 
@@ -58,9 +59,25 @@ Messages the editor sends to the lesson page:
 | `{ type: "changed" }` | The project changed since the last message, at most once a second. |
 | `{ type: "saved", requestId, file }` / `{ type: "saveFailed", requestId, message }` | Result of a `save`. `file` is a Blob. |
 | `{ type: "snapshot", requestId, image }` / `{ type: "snapshotFailed", requestId, message }` | Result of a `snapshot`. `image` is a 480 by 360 JPEG Blob, under 512 KB. A save never waits on it. |
+| `{ type: "menuState", state }` | Scratch only, at boot and whenever it changes: what the menubar would show. `restorable` ("Sprite", "Costume", "Sound" or ""), `turbo`, `locale` and `languages`, `colorMode` and `colorModes`, `theme` and `themes`. |
 
 Set `VITE_ALLOWED_ORIGINS` to the comma-separated origins allowed to drive the
 editor (see `.env.example`). `*` is for local development only.
+
+## The Scratch menubar
+
+The GUI's menubar is hidden (`menuBarHidden`), so the 48px it took go to the
+blocks: on a laptop the lesson page's own bar already sits above the frame.
+Nothing it offered is gone. `src/menuBridge.tsx` sits inside the GUI's store
+and answers the `menu` message with the GUI's own actions (File > New,
+Tutorials, Debug, Edit > Restore and Turbo mode, the language, the colour
+mode and the block theme), and reports `menuState` so the page can draw the
+menu truthfully. Loading and saving a file on the kid's computer are the
+page's: it already holds the bytes (`load` with a `file`, `save`).
+
+A GUI-driven New reports the fresh project through `onProjectLoaded`, like
+the default project at boot; only the first is announced as `ready`, or the
+page would load the saved project straight back over the new one.
 
 ## What the spike proved
 

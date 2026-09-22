@@ -27,6 +27,15 @@
       <img id="picture" alt="" style="display: none; width: 100%; border: 1px solid #999" />
       <button id="ro-on">Read-only on</button>
       <button id="ro-off">Read-only off</button>
+      <p>The Scratch menubar is hidden; the page draws its menu. The editor reports what it would show as <code>menuState</code>.</p>
+      <button id="menu-new">Menu: New project</button>
+      <button id="menu-tutorials">Menu: Tutorials</button>
+      <button id="menu-debug">Menu: Debug</button>
+      <button id="menu-restore">Menu: Restore</button>
+      <button id="menu-turbo">Menu: Turbo on/off</button>
+      <button id="menu-cat">Menu: Cat blocks on/off</button>
+      <button id="menu-fr">Menu: Language fr / en</button>
+      <div class="status" id="menu-state">menu: (nothing yet)</div>
       <pre id="log"></pre>
     </aside>
     <!-- ?editor=web or ?editor=python opens that editor instead of Scratch. -->
@@ -63,6 +72,12 @@
         const m = event.data;
         log(`← ${m.type}${m.message ? " " + m.message : ""}${m.file ? ` ${m.file.size} bytes` : ""}`);
 
+        if (m.type === "menuState") {
+          menuState = m.state;
+          document.getElementById("menu-state").textContent =
+            `menu: ${m.state.locale}, turbo ${m.state.turbo}, ${m.state.theme}, ${m.state.colorMode}, restore ${m.state.restorable || "-"}, ${m.state.languages.length} languages`;
+          return;
+        }
         if (m.type === "ready") {
           setStatus("ready");
         } else if (m.type === "changed") {
@@ -104,6 +119,17 @@
       };
       document.getElementById("ro-on").onclick = () => send({ type: "setReadOnly", value: true });
       document.getElementById("ro-off").onclick = () => send({ type: "setReadOnly", value: false });
+
+      let menuState = null;
+      const menu = (action, value) => send({ type: "menu", action, value });
+      document.getElementById("menu-new").onclick = () => menu("new");
+      document.getElementById("menu-tutorials").onclick = () => menu("tutorials");
+      document.getElementById("menu-debug").onclick = () => menu("debug");
+      document.getElementById("menu-restore").onclick = () => menu("restore");
+      document.getElementById("menu-turbo").onclick = () => menu("turbo", !menuState?.turbo);
+      document.getElementById("menu-cat").onclick = () =>
+        menu("theme", menuState?.theme === "cat-blocks" ? "default" : "cat-blocks");
+      document.getElementById("menu-fr").onclick = () => menu("language", menuState?.locale === "fr" ? "en" : "fr");
     </script>
   </body>
 </html>

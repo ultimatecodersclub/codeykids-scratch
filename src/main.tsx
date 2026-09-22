@@ -1,8 +1,9 @@
 import GUI, { AppStateHOC, setAppElement } from "@scratch/scratch-gui";
-import { useEffect, useState } from "react";
+import { ComponentProps, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { postToPage } from "./bridge";
+import { MenuBridge } from "./menuBridge";
 import { useEditorBridge } from "./useEditorBridge";
 
 // Minimal shape of the parts of scratch-vm this wrapper touches.
@@ -22,64 +23,44 @@ export type ScratchVM = {
   stopAll: () => void;
 };
 
-const WrappedGui = AppStateHOC(GUI);
+// The GUI and, beside it inside the same store, the bridge that stands in
+// for its menubar. AppStateHOC wraps this whole component in the provider.
+const GuiWithMenu = (props: ComponentProps<typeof GUI>) => (
+  <>
+    <GUI {...props} />
+    <MenuBridge />
+  </>
+);
 
-const LOGO = "/codeykids-logo.png";
-
-// The published GUI picks the menubar image from its `platform` and ignores
-// the `logo` prop, so the image is swapped in the DOM instead: once when the
-// menubar is there, and again if the GUI ever sets it back or renders the
-// menubar afresh (which only player mode toggling does). Scratch's trademark
-// guidance: say "based on Scratch", never show its logo.
-const useCodeyKidsLogo = (isPlayerOnly: boolean) => {
-  useEffect(() => {
-    let watched: HTMLImageElement | undefined;
-    const imageObserver = new MutationObserver(() => swap());
-    const swap = () => {
-      const img = document.getElementById("logo_img");
-
-      if (!(img instanceof HTMLImageElement)) return false;
-      if (!img.src.endsWith(LOGO)) {
-        img.src = LOGO;
-        img.alt = "CodeyKids";
-      }
-      if (watched !== img) {
-        imageObserver.disconnect();
-        imageObserver.observe(img, { attributeFilter: ["src"], attributes: true });
-        watched = img;
-      }
-
-      return true;
-    };
-
-    // The menubar mounts after the GUI's first render; watch only until it is
-    // there, so block editing is not taxed for the rest of the session.
-    const bodyObserver = new MutationObserver(() => {
-      if (swap()) bodyObserver.disconnect();
-    });
-
-    if (!swap()) bodyObserver.observe(document.body, { childList: true, subtree: true });
-
-    return () => {
-      bodyObserver.disconnect();
-      imageObserver.disconnect();
-    };
-  }, [isPlayerOnly]);
-};
+const WrappedGui = AppStateHOC(GuiWithMenu);
 
 const App = () => {
   const [isPlayerOnly, setIsPlayerOnly] = useState(false);
+  const hasBooted = useRef(false);
 
   const { onVmInit } = useEditorBridge({ setIsPlayerOnly });
 
-  useCodeyKidsLogo(isPlayerOnly);
+  // The GUI reports every project it brings in through its own loading
+  // state: the default one at boot, and a fresh one after New. Only the
+  // first is the editor being ready; announcing the second would have the
+  // page load the saved project straight back over the new one.
+  const onProjectLoaded = () => {
+    if (hasBooted.current) return;
+
+    hasBooted.current = true;
+    postToPage({ type: "ready" });
+  };
 
   return (
     <WrappedGui
       canEditTitle={false}
       canManageFiles
       isPlayerOnly={isPlayerOnly}
-      onProjectLoaded={() => postToPage({ type: "ready" })}
+      // The menubar is the page's: its File, Edit, Settings, Tutorials and
+      // Debug live in the CodeyKids bar above this frame, which also keeps
+      // Scratch's logo out of a product that is only based on Scratch.
+      menuBarHidden
+      onProjectLoaded={onProjectLoaded}
       onVmInit={onVmInit}
       // "0" is the GUI's bundled default project (the cat). Without a project
       // id nothing loads and onProjectLoaded never fires.
