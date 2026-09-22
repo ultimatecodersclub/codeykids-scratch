@@ -8,8 +8,8 @@ import type { ScratchVM } from "./main";
 
 // The slice of the GUI's store this reads. The GUI publishes its action
 // creators but not its state shape, so these paths are pinned here in one
-// place; `settings` has no published actions at all, so its two are spelled
-// out below.
+// place; `settings` and `restoreDeletion` have no published actions, so
+// theirs are spelled out below.
 type GuiState = {
   locales: { locale: string };
   scratchGui: {
@@ -99,7 +99,14 @@ export const MenuBridge = () => {
           store.dispatch(openDebugModal());
           break;
         case "restore":
+          // Once back, there is nothing to bring back: the GUI's own Edit
+          // menu clears this the same way, or a second pick would add a
+          // second copy.
           state.scratchGui.restoreDeletion.restoreFun?.();
+          store.dispatch({
+            state: { deletedItem: "", restoreFun: null },
+            type: "scratch-gui/restore-deletion/RESTORE_UPDATE",
+          });
           break;
         case "turbo":
           state.scratchGui.vm.setTurboMode(message.value);
