@@ -2,7 +2,8 @@
 body { font: 14px system-ui, sans-serif; color: #1e293b; }
 button { font: inherit; cursor: pointer; }
 
-.layout { display: grid; grid-template-columns: 200px minmax(0, 1fr) minmax(0, 1fr); height: 100vh; }
+/* One row the height of the window, never taller (see python.css). */
+.layout { display: grid; grid-template-columns: 200px minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100vh; }
 
 .files { border-right: 1px solid #cbd5e1; background: #f8fafc; display: flex; flex-direction: column; min-height: 0; }
 .files-header, .preview-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; font-weight: 600; border-bottom: 1px solid #cbd5e1; background: #e2e8f0; height: 36px; }
@@ -23,7 +24,7 @@ button { font: inherit; cursor: pointer; }
 .binary { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 8px; color: #64748b; }
 .binary img { max-width: 80%; max-height: 60%; }
 
-.preview { display: flex; flex-direction: column; min-width: 0; background: #fff; }
+.preview { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #fff; }
 .preview iframe { flex: 1; border: 0; width: 100%; background: #fff; }
 .preview select { font: inherit; }
 

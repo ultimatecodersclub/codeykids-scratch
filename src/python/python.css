@@ -2,7 +2,11 @@
 body { font: 14px system-ui, sans-serif; color: #1e293b; }
 button { font: inherit; cursor: pointer; }
 
-.layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); height: 100vh; }
+/* One row the height of the window, never taller: a grid row sizes to its
+   content by default, so a long main.py stretched the row and pushed the
+   console below the fold. minmax(0, 1fr) on the row and min-height: 0 on
+   the columns keep the code scrolling inside its column instead. */
+.layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-template-rows: minmax(0, 1fr); height: 100vh; }
 .layout.with-files { grid-template-columns: 170px minmax(0, 3fr) minmax(0, 2fr); }
 
 .files { border-right: 1px solid #cbd5e1; background: #f8fafc; display: flex; flex-direction: column; min-height: 0; }
@@ -19,7 +23,7 @@ button { font: inherit; cursor: pointer; }
 .file-actions button:hover { color: #0f172a; }
 .binary { display: flex; align-items: center; justify-content: center; height: 100%; color: #64748b; }
 
-.code { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid #cbd5e1; }
+.code { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid #cbd5e1; }
 .bar { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border-bottom: 1px solid #cbd5e1; background: #e2e8f0; }
 .filename { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
 .spacer { flex: 1; }
@@ -31,7 +35,7 @@ button { font: inherit; cursor: pointer; }
 .editor .cm-gutters { background: #f1f5f9; color: #94a3b8; border-right: 1px solid #e2e8f0; }
 .editor .cm-activeLine { background: #f8fafc; }
 
-.output { display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); min-width: 0; background: #fff; }
+.output { display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); min-width: 0; min-height: 0; background: #fff; }
 .turtle { border-bottom: 1px solid #cbd5e1; overflow: hidden; }
 .turtle canvas { display: block; }
 .console { padding: 8px 10px; overflow: auto; font-family: ui-monospace, Menlo, monospace; font-size: 13px; white-space: pre-wrap; background: #0f172a; color: #e2e8f0; }

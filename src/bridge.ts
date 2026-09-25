@@ -2,6 +2,31 @@
 // The editor never holds the kid's session: the page hands it a URL to load
 // and asks for a Blob to save. See the CodeyKids Studio plan.
 
+// What the Scratch menubar used to offer. The bar itself is hidden to give
+// the blocks the room; the page draws the menu and sends the choice here.
+export type MenuAction =
+  | { action: "new" }
+  | { action: "tutorials" }
+  | { action: "debug" }
+  | { action: "restore" }
+  | { action: "turbo"; value: boolean }
+  | { action: "language"; value: string }
+  | { action: "colorMode"; value: string }
+  | { action: "theme"; value: string };
+
+// What the page needs to draw that menu truthfully.
+export type MenuState = {
+  colorMode: string;
+  colorModes: { label: string; value: string }[];
+  languages: { code: string; name: string }[];
+  locale: string;
+  // "Sprite", "Costume" or "Sound" while one can be brought back, else "".
+  restorable: string;
+  theme: string;
+  themes: { label: string; value: string }[];
+  turbo: boolean;
+};
+
 export type PageToEditor =
   // `file` is the project itself; `url` is fetched by the editor. A page that
   // already has the bytes passes `file` and skips CORS on this origin.
@@ -9,7 +34,8 @@ export type PageToEditor =
   | { type: "save"; requestId: string }
   // A picture of the work as it stands, for the project card.
   | { type: "snapshot"; requestId: string }
-  | { type: "setReadOnly"; value: boolean };
+  | { type: "setReadOnly"; value: boolean }
+  | ({ type: "menu" } & MenuAction);
 
 export type EditorToPage =
   | { type: "ready" }
@@ -19,7 +45,8 @@ export type EditorToPage =
   | { type: "saved"; requestId: string; file: Blob }
   | { type: "saveFailed"; requestId: string; message: string }
   | { type: "snapshot"; requestId: string; image: Blob }
-  | { type: "snapshotFailed"; requestId: string; message: string };
+  | { type: "snapshotFailed"; requestId: string; message: string }
+  | { type: "menuState"; state: MenuState };
 
 // Origins allowed to drive the editor. `*` only for the local spike host page.
 const allowedOrigins = (import.meta.env.VITE_ALLOWED_ORIGINS ?? "*")
