@@ -1,6 +1,6 @@
 // The parts of Skulpt's global this editor touches.
 declare const Sk: {
-  TurtleGraphics?: { height: number; target: string; width: number };
+  TurtleGraphics?: { height: number; target: string; width: number; worldHeight?: number; worldWidth?: number };
   builtin: {
     IOError: new (message: string) => unknown;
     open: (filename: { v: string }, mode?: { v: string }, bufsize?: unknown) => unknown;

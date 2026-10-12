@@ -83,6 +83,14 @@ def _patch_pgzero():
     pygame.display.set_icon = set_icon
     pgzero.game.PGZeroGame.show_default_icon = staticmethod(lambda: None)
 
+    # An error in a function the clock calls is printed by Pygame Zero as a
+    # traceback through its own files, and the game carries on without that
+    # function. It carries on here too, with the error said in one line like
+    # any other.
+    import traceback
+
+    traceback.print_exc = _print_error
+
     games = []
 
     def run(self):
@@ -120,6 +128,19 @@ def _describe(error):
     if not frames:
         return {"message": message}
     return {"file": _where(frames[-1].filename), "line": frames[-1].lineno, "message": message}
+
+
+def _print_error(*args, **kwargs):
+    import codeykids_page
+
+    error = sys.exc_info()[1]
+    if error is None:
+        return
+    where = _describe(error)
+    place = ""
+    if where.get("line"):
+        place = (where["file"] + ", line " if where.get("file") else "Line ") + str(where["line"]) + ": "
+    codeykids_page.error(place + where["message"])
 
 
 async def run_game():

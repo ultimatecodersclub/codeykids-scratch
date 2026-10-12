@@ -166,6 +166,17 @@ const wrapOpen = () => {
 
 let currentProject: Record<string, string> = {};
 
+// The least of the turtle's world the panel shows, about what Python's own
+// turtle window shows. A narrower panel shrinks the drawing to fit instead of
+// cutting it off, by the same amount both ways so circles stay round.
+const TURTLE_WORLD = { height: 500, width: 600 };
+
+const turtleGraphics = (target: string, { height, width }: RunHandlers["turtleSize"]) => {
+  const scale = Math.max(TURTLE_WORLD.width / width, TURTLE_WORLD.height / height, 1);
+
+  return { height, target, width, worldHeight: height * scale, worldWidth: width * scale };
+};
+
 export const runPython = (code: string, handlers: RunHandlers, stopped: () => boolean) => {
   currentProject = handlers.files;
   wrapOpen();
@@ -187,7 +198,7 @@ export const runPython = (code: string, handlers: RunHandlers, stopped: () => bo
     read: reader(currentProject),
     yieldLimit: 100,
   });
-  Sk.TurtleGraphics = { target: handlers.turtleTarget, ...handlers.turtleSize };
+  Sk.TurtleGraphics = turtleGraphics(handlers.turtleTarget, handlers.turtleSize);
   // In "browser" mode open() looks for a DOM element named after the file;
   // off, it goes through the reader above, which serves the project's files.
   // Skulpt uses the flag nowhere else.
