@@ -12,6 +12,7 @@ declare const Sk: {
   inBrowser?: boolean;
   misceval: {
     asyncToPromise: (fn: () => unknown, handlers?: Record<string, () => void>) => Promise<unknown>;
+    objectRepr: (value: unknown) => string;
   };
   python3: unknown;
 };

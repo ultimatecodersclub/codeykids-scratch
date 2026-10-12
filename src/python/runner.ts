@@ -2,6 +2,8 @@
 // for a line, turtle draws into the element named `turtleTarget`, and Stop
 // cancels at the next loop iteration or turtle move.
 
+import { pythonWording } from "./wording";
+
 export type RunHandlers = {
   // The project's text files: `import helpers` reads `./helpers.py`,
   // `open("data.txt")` reads `data.txt`, and a write lands back here.
@@ -101,33 +103,26 @@ const reader = (project: Record<string, string>) => (name: string) => {
   throw new Sk.builtin.IOError(`[Errno 2] No such file or directory: '${own}'`);
 };
 
-// Skulpt's wording differs from CPython's, which the worksheets quote; the
-// commonest messages are said the way Python 3 says them.
-const REWORDINGS: [RegExp, string][] = [
-  [/^SyntaxError: bad input/, "SyntaxError: invalid syntax"],
-  [/^TypeError: cannot concatenate 'str' and '(\w+)' objects/, 'TypeError: can only concatenate str (not "$1") to str'],
-  [/^ZeroDivisionError: integer division or modulo by zero/, "ZeroDivisionError: division by zero"],
-  [/^IOError: \[Errno 2\]/, "FileNotFoundError: [Errno 2]"],
-];
-
-const reword = (message: string) =>
-  REWORDINGS.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), message);
-
 type SkError = {
   args?: { v?: { v?: string }[] };
   traceback?: { filename?: string; lineno?: number }[];
   tp$name?: string;
 };
 
-const describe = (error: unknown): RunError => {
+// Said the way Python 3.14 says it (see wording.ts), from the file the error
+// is in: `main` for main.py, `project` for the others.
+const describe = (error: unknown, main: string, project: Record<string, string>): RunError => {
   const e = error as SkError;
-  const message = e.tp$name && e.args?.v?.[0]?.v !== undefined ? `${e.tp$name}: ${e.args.v[0].v}` : String(error);
+  const argument = e.args?.v?.[0];
+  // Python shows a missing key as written, quotes and all: KeyError: 'x'.
+  const detail = e.tp$name === "KeyError" && argument ? Sk.misceval.objectRepr(argument) : argument?.v;
+  const message = e.tp$name && detail !== undefined ? `${e.tp$name}: ${detail}` : String(error);
   // The kid's own line, not one in the turtle module above.
   const frame = e.traceback?.find((place) => !place.filename?.startsWith(LIBRARY)) ?? e.traceback?.[0];
   // main.py runs as "<stdin>" (Skulpt adds ".py"); only a module gets named.
   const file = frame?.filename && !frame.filename.startsWith("<stdin>") ? ownName(frame.filename) : undefined;
 
-  return { file, line: frame?.lineno, message: reword(message) };
+  return { file, ...pythonWording({ line: frame?.lineno, message }, file ? project[file] : main) };
 };
 
 // exit() and quit() are a normal end of the program, not an error; their
@@ -218,7 +213,7 @@ export const runPython = (code: string, handlers: RunHandlers, stopped: () => bo
           return undefined;
         }
 
-        return describe(error);
+        return describe(error, code, handlers.files);
       },
     );
 };
