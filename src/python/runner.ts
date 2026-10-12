@@ -17,6 +17,74 @@ export type RunError = { file?: string; line?: number; message: string };
 
 const ownName = (name: string) => (name.startsWith("./") ? name.slice(2) : name);
 
+// Skulpt's turtle offers only a few of the screen's methods as plain functions
+// (title, tracer, done...), where Python's offers them all, and the worksheets
+// start with turtle.bgcolor("black"). Skulpt's module is served under another
+// name and this one, imported as turtle, adds the rest. The few the screen
+// lacks answer the way Python's do, input() standing in for the dialogs;
+// colormode is a turtle's in Skulpt and already a plain function.
+const TURTLE = `from _skulpt_turtle import *
+import _skulpt_turtle
+
+
+class Screen(_skulpt_turtle.Screen):
+    def colormode(self, cmode=None):
+        if cmode is None:
+            return _skulpt_turtle.colormode()
+        return _skulpt_turtle.colormode(cmode)
+
+    def onkeypress(self, fun, key=None):
+        return self.onkey(fun, key)
+
+    def onkeyrelease(self, fun, key=None):
+        return self.onkey(fun, key)
+
+    def textinput(self, title, prompt):
+        return input(prompt)
+
+    def numinput(self, title, prompt, default=None, minval=None, maxval=None):
+        return float(input(prompt))
+
+    def screensize(self, canvwidth=None, canvheight=None, bg=None):
+        if bg is not None:
+            self.bgcolor(bg)
+        return (self.window_width(), self.window_height())
+
+    def mode(self, mode=None):
+        return "standard"
+
+
+def _screen_function(name):
+    def function(*args, **kwargs):
+        return getattr(Screen(), name)(*args, **kwargs)
+    return function
+
+
+addshape = _screen_function("addshape")
+bgcolor = _screen_function("bgcolor")
+bgpic = _screen_function("bgpic")
+clearscreen = _screen_function("clearscreen")
+exitonclick = _screen_function("exitonclick")
+getshapes = _screen_function("getshapes")
+listen = _screen_function("listen")
+mode = _screen_function("mode")
+numinput = _screen_function("numinput")
+onkey = _screen_function("onkey")
+onkeypress = _screen_function("onkeypress")
+onkeyrelease = _screen_function("onkeyrelease")
+onscreenclick = _screen_function("onscreenclick")
+ontimer = _screen_function("ontimer")
+register_shape = _screen_function("register_shape")
+resetscreen = _screen_function("resetscreen")
+screensize = _screen_function("screensize")
+setup = _screen_function("setup")
+setworldcoordinates = _screen_function("setworldcoordinates")
+textinput = _screen_function("textinput")
+turtles = _screen_function("turtles")
+`;
+
+const LIBRARY = "src/lib/";
+
 const reader = (project: Record<string, string>) => (name: string) => {
   const own = ownName(name);
 
@@ -24,7 +92,9 @@ const reader = (project: Record<string, string>) => (name: string) => {
 
   const files = Sk.builtinFiles?.files;
 
-  if (files && files[name] !== undefined) return files[name];
+  if (name === `${LIBRARY}turtle.py`) return TURTLE;
+  if (name === `${LIBRARY}_skulpt_turtle.js`) return files?.[`${LIBRARY}turtle.js`];
+  if (files && files[name] !== undefined && name !== `${LIBRARY}turtle.js`) return files[name];
 
   // What Python says, so `except IOError` (and OSError) in the kid's code
   // works; a missing module import is swallowed by Skulpt's own search.
@@ -51,7 +121,8 @@ type SkError = {
 const describe = (error: unknown): RunError => {
   const e = error as SkError;
   const message = e.tp$name && e.args?.v?.[0]?.v !== undefined ? `${e.tp$name}: ${e.args.v[0].v}` : String(error);
-  const frame = e.traceback?.[0];
+  // The kid's own line, not one in the turtle module above.
+  const frame = e.traceback?.find((place) => !place.filename?.startsWith(LIBRARY)) ?? e.traceback?.[0];
   // main.py runs as "<stdin>" (Skulpt adds ".py"); only a module gets named.
   const file = frame?.filename && !frame.filename.startsWith("<stdin>") ? ownName(frame.filename) : undefined;
 
