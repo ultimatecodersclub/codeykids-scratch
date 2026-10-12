@@ -107,6 +107,7 @@ const REWORDINGS: [RegExp, string][] = [
   [/^SyntaxError: bad input/, "SyntaxError: invalid syntax"],
   [/^TypeError: cannot concatenate 'str' and '(\w+)' objects/, 'TypeError: can only concatenate str (not "$1") to str'],
   [/^ZeroDivisionError: integer division or modulo by zero/, "ZeroDivisionError: division by zero"],
+  [/^IOError: \[Errno 2\]/, "FileNotFoundError: [Errno 2]"],
 ];
 
 const reword = (message: string) =>
