@@ -259,8 +259,13 @@ const PythonEditor = () => {
         input: ask,
         output: (text, kind) => append({ kind, text }),
         window: (picture) => {
+          const canvas = windowRef.current;
+
+          // The first picture takes the keys, so "press q to quit" works
+          // without a click on the window first.
+          if (picture && canvas && canvas.width === 0) canvas.focus();
           setWindowOpen(!!picture);
-          if (picture && windowRef.current) showWindow(windowRef.current, picture.bytes, picture.width, picture.height);
+          if (picture && canvas) showWindow(canvas, picture.bytes, picture.width, picture.height);
         },
       },
       aiRef.current,
@@ -323,6 +328,7 @@ const PythonEditor = () => {
     clearLines();
     setPending(undefined);
     setWindowOpen(false);
+    if (windowRef.current) windowRef.current.width = 0;
     if (turtleRef.current) turtleRef.current.innerHTML = "";
     setRunning(true);
 

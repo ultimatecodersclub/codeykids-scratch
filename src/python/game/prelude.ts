@@ -17,6 +17,10 @@ import types
 PROJECT = "/home/pyodide/project"
 FRAME = 1 / 60
 
+# pygame greets with its version on import; a kid's output should not start
+# with it.
+os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
+
 _state = types.SimpleNamespace(stopped=False)
 
 

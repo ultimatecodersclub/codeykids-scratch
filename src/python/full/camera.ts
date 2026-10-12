@@ -69,11 +69,14 @@ export const cameraRead = () => {
   return bgr;
 };
 
+// Also forgets keys, so a q pressed to end one run does not end the next.
 export const cameraClose = () => {
   stream?.getTracks().forEach((track) => track.stop());
   stream = undefined;
   video = undefined;
   grab = undefined;
+  lastKey = -1;
+  keyWaiter = undefined;
 };
 
 // RGB or BGR bytes to a picture the browser can draw.

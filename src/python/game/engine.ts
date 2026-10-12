@@ -22,7 +22,7 @@ type FS = {
 type Pyodide = {
   FS: FS;
   canvas: { setCanvas2D: (canvas: HTMLCanvasElement) => void };
-  loadPackage: (names: string[]) => Promise<unknown>;
+  loadPackage: (names: string[], options?: { messageCallback?: (message: string) => void }) => Promise<unknown>;
   runPython: (code: string) => unknown;
   runPythonAsync: (code: string) => Promise<unknown>;
   setStderr: (options: { batched: (text: string) => void }) => void;
@@ -53,7 +53,8 @@ const load = () => {
     instance.setStdin({ stdin: () => window.prompt("Your program is asking:") });
 
     // Pygame Zero's tone module imports pygame.sndarray, which needs numpy.
-    await instance.loadPackage(["numpy", "pygame-ce"]);
+    // Pyodide's own "Loaded …" lines stay out of the kid's output.
+    await instance.loadPackage(["numpy", "pygame-ce"], { messageCallback: () => undefined });
 
     const sitePackages = instance.runPython("import site; site.getsitepackages()[0]") as string;
     const wheel = await (await fetch(PGZERO_WHEEL)).arrayBuffer();

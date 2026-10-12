@@ -9,6 +9,8 @@
 const PREFIX = "/__codeykids__/io/";
 // A read holds the request open at most this long; the worker asks again.
 const READ_TIMEOUT_MS = 20000;
+// A reply nobody read (the program was stopped) is dropped after this.
+const EARLY_TTL_MS = 60000;
 const SLEEP_CAP_MS = 10000;
 
 const waiting = new Map();
@@ -59,6 +61,7 @@ const write = async (request, url) => {
     resolve(value);
   } else {
     early.set(id, value);
+    setTimeout(() => early.delete(id), EARLY_TTL_MS);
   }
 
   return json({ ok: true });

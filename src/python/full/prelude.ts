@@ -91,7 +91,10 @@ def _patch_cv2():
 
     class VideoCapture:
         def __init__(self, index=0, *args):
-            info = json.loads(str(js.codeykidsCamera("open", json.dumps({"index": index}))))
+            try:
+                info = json.loads(str(js.codeykidsCamera("open", json.dumps({"index": index}))))
+            except JsException:
+                info = {"message": "The camera can't be reached here. Reload the page and run again."}
             self._open = bool(info.get("open"))
             self._width = info.get("width", 640)
             self._height = info.get("height", 480)
