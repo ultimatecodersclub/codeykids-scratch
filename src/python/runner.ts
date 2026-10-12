@@ -19,47 +19,93 @@ export type RunError = { file?: string; line?: number; message: string };
 
 const ownName = (name: string) => (name.startsWith("./") ? name.slice(2) : name);
 
+// The least of the turtle's world the panel shows, about what Python's own
+// turtle window shows. A narrower panel shrinks the drawing to fit instead of
+// cutting it off, by the same amount both ways so circles stay round.
+const TURTLE_WORLD = { height: 500, width: 600 };
+
 // Skulpt's turtle offers only a few of the screen's methods as plain functions
 // (title, tracer, done...), where Python's offers them all, and the worksheets
 // start with turtle.bgcolor("black"). Skulpt's module is served under another
-// name and this one, imported as turtle, adds the rest. The few the screen
-// lacks answer the way Python's do, input() standing in for the dialogs;
-// colormode is a turtle's in Skulpt and already a plain function.
+// name and this one, imported as turtle, adds the rest, and makes the rest
+// answer the way Python's do: input() stands in for the dialogs, colormode is
+// the screen's (Skulpt keeps one per turtle), setup() and window_width() are
+// about the world the panel shows rather than its pixels.
 const TURTLE = `from _skulpt_turtle import *
 import _skulpt_turtle
+
+_state = {"colormode": 1.0, "world": (${TURTLE_WORLD.width}, ${TURTLE_WORLD.height})}
+
+
+def _world_size():
+    pixels = _skulpt_turtle.Screen()
+    across, down = pixels.window_width(), pixels.window_height()
+    wide, high = _state["world"]
+    scale = max(wide / across, high / down, 1)
+    return across * scale, down * scale
 
 
 class Screen(_skulpt_turtle.Screen):
     def colormode(self, cmode=None):
         if cmode is None:
-            return _skulpt_turtle.colormode()
-        return _skulpt_turtle.colormode(cmode)
+            return _state["colormode"]
+        _state["colormode"] = 255 if cmode == 255 else 1.0
+        for each in self.turtles():
+            each.colormode(cmode)
+
+    def numinput(self, title, prompt, default=None, minval=None, maxval=None):
+        while True:
+            answer = input(prompt)
+            if answer == "" and default is not None:
+                return float(default)
+            try:
+                number = float(answer)
+            except ValueError:
+                print("Not a number. Please try again.")
+                continue
+            if minval is not None and number < minval:
+                print(f"The allowed minimum value is {minval}. Please try again.")
+            elif maxval is not None and number > maxval:
+                print(f"The allowed maximum value is {maxval}. Please try again.")
+            else:
+                return number
 
     def onkeypress(self, fun, key=None):
         return self.onkey(fun, key)
 
-    def onkeyrelease(self, fun, key=None):
-        return self.onkey(fun, key)
+    def setup(self, width=0.5, height=0.75, startx=None, starty=None):
+        if width > 1 and height > 1:
+            _state["world"] = (width, height)
+            across, down = _world_size()
+            self.setworldcoordinates(-across / 2, -down / 2, across / 2, down / 2)
 
     def textinput(self, title, prompt):
         return input(prompt)
 
-    def numinput(self, title, prompt, default=None, minval=None, maxval=None):
-        return float(input(prompt))
+    def window_height(self):
+        return int(_world_size()[1])
 
-    def screensize(self, canvwidth=None, canvheight=None, bg=None):
-        if bg is not None:
-            self.bgcolor(bg)
-        return (self.window_width(), self.window_height())
+    def window_width(self):
+        return int(_world_size()[0])
 
-    def mode(self, mode=None):
-        return "standard"
+
+class Turtle(_skulpt_turtle.Turtle):
+    def __init__(self, *args, **kwargs):
+        _skulpt_turtle.Turtle.__init__(self, *args, **kwargs)
+        if _state["colormode"] == 255:
+            self.colormode(255)
 
 
 def _screen_function(name):
     def function(*args, **kwargs):
         return getattr(Screen(), name)(*args, **kwargs)
     return function
+
+
+def colormode(cmode=None):
+    if cmode is not None:
+        _skulpt_turtle.colormode(cmode)
+    return Screen().colormode(cmode)
 
 
 addshape = _screen_function("addshape")
@@ -69,20 +115,19 @@ clearscreen = _screen_function("clearscreen")
 exitonclick = _screen_function("exitonclick")
 getshapes = _screen_function("getshapes")
 listen = _screen_function("listen")
-mode = _screen_function("mode")
 numinput = _screen_function("numinput")
 onkey = _screen_function("onkey")
 onkeypress = _screen_function("onkeypress")
-onkeyrelease = _screen_function("onkeyrelease")
 onscreenclick = _screen_function("onscreenclick")
 ontimer = _screen_function("ontimer")
 register_shape = _screen_function("register_shape")
 resetscreen = _screen_function("resetscreen")
-screensize = _screen_function("screensize")
 setup = _screen_function("setup")
 setworldcoordinates = _screen_function("setworldcoordinates")
 textinput = _screen_function("textinput")
 turtles = _screen_function("turtles")
+window_height = _screen_function("window_height")
+window_width = _screen_function("window_width")
 `;
 
 const LIBRARY = "src/lib/";
@@ -166,12 +211,10 @@ const wrapOpen = () => {
 
 let currentProject: Record<string, string> = {};
 
-// The least of the turtle's world the panel shows, about what Python's own
-// turtle window shows. A narrower panel shrinks the drawing to fit instead of
-// cutting it off, by the same amount both ways so circles stay round.
-const TURTLE_WORLD = { height: 500, width: 600 };
-
+// A panel not laid out yet (0 px) leaves the world to Skulpt's own measure.
 const turtleGraphics = (target: string, { height, width }: RunHandlers["turtleSize"]) => {
+  if (!height || !width) return { height, target, width };
+
   const scale = Math.max(TURTLE_WORLD.width / width, TURTLE_WORLD.height / height, 1);
 
   return { height, target, width, worldHeight: height * scale, worldWidth: width * scale };

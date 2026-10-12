@@ -32,11 +32,15 @@ type Pyodide = {
   unpackArchive: (buffer: ArrayBuffer, format: string, options?: { extractDir?: string }) => void;
 };
 
+export type GameError = { file?: string; line?: number; message: string };
+
 export type GameHandlers = {
-  output: (text: string, kind: "error" | "info" | "out") => void;
+  // An error the game survives: one in a function the clock calls.
+  error: (error: GameError) => void;
+  output: (text: string, kind: "info" | "out") => void;
 };
 
-export type GameResult = { error?: { file?: string; line?: number; message: string } };
+export type GameResult = { error?: GameError };
 
 let python: Promise<Pyodide> | undefined;
 let handlers: GameHandlers | undefined;
@@ -61,8 +65,7 @@ const load = () => {
     const wheel = await (await fetch(PGZERO_WHEEL)).arrayBuffer();
 
     instance.unpackArchive(wheel, "zip", { extractDir: sitePackages });
-    // An error the game survives (one in a clock callback) shows as an error.
-    instance.registerJsModule("codeykids_page", { error: (text: string) => handlers?.output(`${text}\n`, "error") });
+    instance.registerJsModule("codeykids_page", { error: (error: string) => handlers?.error(JSON.parse(error)) });
     instance.runPython(GAME_PRELUDE);
     loaded = true;
 

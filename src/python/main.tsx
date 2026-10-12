@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
 import { answerSnapshot, listenToPage, postToPage } from "../bridge";
@@ -47,6 +48,10 @@ const asFile = (name: string, bytes: Uint8Array) =>
   isText(name) ? { text: new TextDecoder().decode(bytes) } : { bytes };
 
 const fileBytes = (file: PythonFiles[string]) => file.bytes ?? new TextEncoder().encode(file.text ?? "");
+
+// An error as the output shows it: `Line 3: …`, or `helpers.py, line 3: …`.
+const errorLine = ({ file, line, message }: RunError) =>
+  line ? `${file ? `${file}, line` : "Line"} ${line}: ${message}` : message;
 
 const PythonEditor = () => {
   const [files, setFiles] = useState<PythonFiles>(starterFiles);
@@ -221,11 +226,7 @@ const PythonEditor = () => {
   const report = (error: RunError | undefined) => {
     if (!error) append({ kind: "info", text: "Finished." });
     else if (error.message === "Stopped") append({ kind: "info", text: "Stopped." });
-    else
-      append({
-        kind: "error",
-        text: error.line ? `${error.file ? `${error.file}, line` : "Line"} ${error.line}: ${error.message}` : error.message,
-      });
+    else append({ kind: "error", text: errorLine(error) });
   };
 
   // What a program changed in its folder becomes part of the project; the
@@ -283,7 +284,10 @@ const PythonEditor = () => {
 
     if (!gameRef.current) return { message: "The game area is missing." };
 
-    const result = await runGame(bytes, gameRef.current, { output: (text, kind) => append({ kind, text }) });
+    const result = await runGame(bytes, gameRef.current, {
+      error: (error) => append({ kind: "error", text: errorLine(error) }),
+      output: (text, kind) => append({ kind, text }),
+    });
 
     return result.error;
   };
@@ -324,10 +328,14 @@ const PythonEditor = () => {
 
     stopRef.current = false;
     engineRef.current = engine;
-    setRunEngine(engine);
+    // The output takes this engine's layout now, not at the next render, so
+    // the turtle's panel is measured at the size it will draw in.
+    flushSync(() => {
+      setRunEngine(engine);
+      setWindowOpen(false);
+    });
     clearLines();
     setPending(undefined);
-    setWindowOpen(false);
     if (windowRef.current) windowRef.current.width = 0;
     if (turtleRef.current) turtleRef.current.innerHTML = "";
     setRunning(true);

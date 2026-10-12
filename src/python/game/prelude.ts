@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import time
+import traceback
 import types
 
 PROJECT = "/home/pyodide/project"
@@ -22,6 +23,7 @@ FRAME = 1 / 60
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
 _state = types.SimpleNamespace(stopped=False)
+_print_exc = traceback.print_exc
 
 
 def _forget_modules():
@@ -59,7 +61,15 @@ async def _mainloop(self):
                 self.keyboard._release(event.key)
             self.dispatch_event(event)
 
-        pgzclock.tick(dt)
+        # Pygame Zero prints an error in a function the clock calls as a
+        # traceback through its own files and carries on without that
+        # function. It carries on here too, the page showing the error in one
+        # line like any other.
+        traceback.print_exc = _print_error
+        try:
+            pgzclock.tick(dt)
+        finally:
+            traceback.print_exc = _print_exc
 
         if update:
             update(dt)
@@ -83,13 +93,6 @@ def _patch_pgzero():
     pygame.display.set_icon = set_icon
     pgzero.game.PGZeroGame.show_default_icon = staticmethod(lambda: None)
 
-    # An error in a function the clock calls is printed by Pygame Zero as a
-    # traceback through its own files, and the game carries on without that
-    # function. It carries on here too, with the error said in one line like
-    # any other.
-    import traceback
-
-    traceback.print_exc = _print_error
 
     games = []
 
@@ -113,8 +116,6 @@ def _where(path):
 
 
 def _describe(error):
-    import traceback
-
     if isinstance(error, SyntaxError):
         message = type(error).__name__ + ": " + str(error.msg)
         return {"file": _where(error.filename), "line": error.lineno, "message": message}
@@ -135,12 +136,8 @@ def _print_error(*args, **kwargs):
 
     error = sys.exc_info()[1]
     if error is None:
-        return
-    where = _describe(error)
-    place = ""
-    if where.get("line"):
-        place = (where["file"] + ", line " if where.get("file") else "Line ") + str(where["line"]) + ": "
-    codeykids_page.error(place + where["message"])
+        return _print_exc(*args, **kwargs)
+    codeykids_page.error(json.dumps(_describe(error)))
 
 
 async def run_game():
