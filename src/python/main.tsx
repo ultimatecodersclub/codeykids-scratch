@@ -5,6 +5,7 @@ import { answerSnapshot, listenToPage, postToPage } from "../bridge";
 import { codeCard, pictureOf } from "../snapshot";
 import { CodeEditor } from "../web/CodeEditor";
 import { Engine, engineFor } from "./engine";
+import { pressKey, showWindow } from "./full/camera";
 import { AiAccess, runFullPython, stopFullPython, warmUpFullPython } from "./full/client";
 import { runGame, stopGame, warmUpGame } from "./game/engine";
 import { bytesOf, fromBytes, isText, MAIN, PythonFiles, starterFiles, toBlob } from "./project";
@@ -60,6 +61,8 @@ const PythonEditor = () => {
   // shows: turtle's drawing, a game, or nothing (real Python draws charts
   // into the console).
   const [runEngine, setRunEngine] = useState<Engine>();
+  // Whether a program's cv2.imshow window is up.
+  const [windowOpen, setWindowOpen] = useState(false);
 
   const filesRef = useRef(files);
   const lastChangedAt = useRef(0);
@@ -67,6 +70,7 @@ const PythonEditor = () => {
   const engineRef = useRef<Engine>("skulpt");
   const aiRef = useRef<AiAccess>();
   const gameRef = useRef<HTMLCanvasElement>(null);
+  const windowRef = useRef<HTMLCanvasElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const turtleRef = useRef<HTMLDivElement>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
@@ -254,6 +258,10 @@ const PythonEditor = () => {
         image: appendImage,
         input: ask,
         output: (text, kind) => append({ kind, text }),
+        window: (picture) => {
+          setWindowOpen(!!picture);
+          if (picture && windowRef.current) showWindow(windowRef.current, picture.bytes, picture.width, picture.height);
+        },
       },
       aiRef.current,
     );
@@ -314,6 +322,7 @@ const PythonEditor = () => {
     setRunEngine(engine);
     clearLines();
     setPending(undefined);
+    setWindowOpen(false);
     if (turtleRef.current) turtleRef.current.innerHTML = "";
     setRunning(true);
 
@@ -497,11 +506,15 @@ const PythonEditor = () => {
         )}
       </main>
 
-      <section className={`output ${shownEngine}`}>
+      <section className={`output ${shownEngine}${windowOpen ? " window-open" : ""}`}>
         <div className="turtle" id={TURTLE_TARGET} ref={turtleRef} />
         <div className="game">
           {/* pygame draws here; tabIndex lets it take the keys. */}
           <canvas id="canvas" ref={gameRef} tabIndex={0} />
+        </div>
+        <div className="window">
+          {/* cv2.imshow draws here; cv2.waitKey reads the keys pressed on it. */}
+          <canvas onKeyDown={(e) => pressKey(e.key)} ref={windowRef} tabIndex={0} />
         </div>
         <div className="console" ref={consoleRef}>
           {lines.map((line) =>

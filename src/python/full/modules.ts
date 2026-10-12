@@ -116,4 +116,186 @@ class Client:
         return show(*args, **kwargs)
 `;
 
-export const MODULES: Record<string, string> = { "ollama.py": OLLAMA };
+// mediapipe: the hand tracking the legacy solutions API offered
+// (mp.solutions.hands), answered by Google's hand tracker for the browser
+// on the picture the program passes to process().
+const MEDIAPIPE_INIT = `
+"""Stand-in for mediapipe's hand tracking, for CodeyKids' Python editor."""
+
+from mediapipe import solutions
+
+__version__ = "0.10.21"
+`;
+
+const MEDIAPIPE_SOLUTIONS = `
+from mediapipe.solutions import drawing_styles, drawing_utils, hands
+`;
+
+const MEDIAPIPE_HANDS = `
+import enum
+import json
+
+import js
+from pyodide.ffi import to_js
+
+
+class HandLandmark(enum.IntEnum):
+    WRIST = 0
+    THUMB_CMC = 1
+    THUMB_MCP = 2
+    THUMB_IP = 3
+    THUMB_TIP = 4
+    INDEX_FINGER_MCP = 5
+    INDEX_FINGER_PIP = 6
+    INDEX_FINGER_DIP = 7
+    INDEX_FINGER_TIP = 8
+    MIDDLE_FINGER_MCP = 9
+    MIDDLE_FINGER_PIP = 10
+    MIDDLE_FINGER_DIP = 11
+    MIDDLE_FINGER_TIP = 12
+    RING_FINGER_MCP = 13
+    RING_FINGER_PIP = 14
+    RING_FINGER_DIP = 15
+    RING_FINGER_TIP = 16
+    PINKY_MCP = 17
+    PINKY_PIP = 18
+    PINKY_DIP = 19
+    PINKY_TIP = 20
+
+
+HAND_CONNECTIONS = frozenset([
+    (0, 1), (1, 2), (2, 3), (3, 4),
+    (0, 5), (5, 6), (6, 7), (7, 8),
+    (5, 9), (9, 10), (10, 11), (11, 12),
+    (9, 13), (13, 14), (14, 15), (15, 16),
+    (13, 17), (0, 17), (17, 18), (18, 19), (19, 20),
+])
+
+
+class NormalizedLandmark:
+    def __init__(self, x, y, z):
+        self.x = x
+        self.y = y
+        self.z = z
+
+    def __repr__(self):
+        return "x: %s y: %s z: %s" % (self.x, self.y, self.z)
+
+
+class NormalizedLandmarkList:
+    def __init__(self, landmark):
+        self.landmark = landmark
+
+
+class Classification:
+    def __init__(self, index, score, label):
+        self.index = index
+        self.score = score
+        self.label = label
+
+
+class ClassificationList:
+    def __init__(self, classification):
+        self.classification = classification
+
+
+class _Results:
+    def __init__(self, multi_hand_landmarks, multi_handedness):
+        self.multi_hand_landmarks = multi_hand_landmarks
+        self.multi_handedness = multi_handedness
+        self.multi_hand_world_landmarks = None
+
+
+class Hands:
+    def __init__(self, static_image_mode=False, max_num_hands=2, model_complexity=1,
+                 min_detection_confidence=0.5, min_tracking_confidence=0.5):
+        self.max_num_hands = max_num_hands
+
+    def process(self, image):
+        import numpy as np
+
+        image = np.ascontiguousarray(image)
+        height, width = image.shape[:2]
+        request = json.dumps({"height": height, "maxHands": self.max_num_hands, "width": width})
+        found = json.loads(str(js.codeykidsCamera("detect", request, to_js(image.tobytes()))))
+        if isinstance(found, dict):
+            raise RuntimeError(found.get("error", "The hand tracker did not answer."))
+        if not found:
+            return _Results(None, None)
+        landmarks = [NormalizedLandmarkList([NormalizedLandmark(*point) for point in hand["landmarks"]]) for hand in found]
+        handedness = [
+            ClassificationList([Classification(index, hand["score"], hand["handedness"])])
+            for index, hand in enumerate(found)
+        ]
+        return _Results(landmarks, handedness)
+
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+`;
+
+const MEDIAPIPE_DRAWING_UTILS = `
+import cv2
+
+
+class DrawingSpec:
+    def __init__(self, color=(224, 224, 224), thickness=2, circle_radius=2):
+        self.color = color
+        self.thickness = thickness
+        self.circle_radius = circle_radius
+
+
+_LANDMARKS = DrawingSpec(color=(0, 0, 255))
+_CONNECTIONS = DrawingSpec()
+
+
+def _spec(spec, index, default):
+    if isinstance(spec, dict):
+        return spec.get(index, default)
+    return spec or default
+
+
+def draw_landmarks(image, landmark_list, connections=None, landmark_drawing_spec=_LANDMARKS,
+                   connection_drawing_spec=_CONNECTIONS, is_drawing_landmarks=True):
+    if landmark_list is None:
+        return
+    height, width = image.shape[:2]
+    points = {
+        index: (int(point.x * width), int(point.y * height))
+        for index, point in enumerate(landmark_list.landmark)
+    }
+    for start, end in connections or []:
+        if start in points and end in points:
+            spec = _spec(connection_drawing_spec, (start, end), _CONNECTIONS)
+            cv2.line(image, points[start], points[end], spec.color, spec.thickness)
+    if is_drawing_landmarks and landmark_drawing_spec is not None:
+        for index, point in points.items():
+            spec = _spec(landmark_drawing_spec, index, _LANDMARKS)
+            cv2.circle(image, point, spec.circle_radius, spec.color, spec.thickness)
+`;
+
+const MEDIAPIPE_DRAWING_STYLES = `
+from mediapipe.solutions.drawing_utils import DrawingSpec
+
+
+def get_default_hand_landmarks_style():
+    return DrawingSpec(color=(0, 0, 255))
+
+
+def get_default_hand_connections_style():
+    return DrawingSpec()
+`;
+
+export const MODULES: Record<string, string> = {
+  "mediapipe/__init__.py": MEDIAPIPE_INIT,
+  "mediapipe/solutions/__init__.py": MEDIAPIPE_SOLUTIONS,
+  "mediapipe/solutions/drawing_styles.py": MEDIAPIPE_DRAWING_STYLES,
+  "mediapipe/solutions/drawing_utils.py": MEDIAPIPE_DRAWING_UTILS,
+  "mediapipe/solutions/hands.py": MEDIAPIPE_HANDS,
+  "ollama.py": OLLAMA,
+};

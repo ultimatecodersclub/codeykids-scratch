@@ -1,7 +1,8 @@
 // Lets the Python editor's worker wait for the page: real Python's input()
 // and time.sleep() block, and a worker can only block on a synchronous
 // request. The worker asks here and this answers once the page has written
-// the reply, or once the sleep is over. The same approach as sync-message
+// the reply (JSON, or bytes such as a camera picture when written with
+// ?binary), or once the sleep is over. The same approach as sync-message
 // (MIT, Alex Hall), without SharedArrayBuffer, so CodeyKids needs no
 // cross-origin isolation headers. Every other request passes through.
 
@@ -19,6 +20,11 @@ self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim(
 const json = (value, status = 200) =>
   new Response(JSON.stringify(value), { headers: { "Content-Type": "application/json" }, status });
 
+const answer = (value) =>
+  value instanceof ArrayBuffer
+    ? new Response(value, { headers: { "Content-Type": "application/octet-stream" } })
+    : json({ value });
+
 const read = async (request) => {
   const { id } = await request.json();
 
@@ -26,7 +32,7 @@ const read = async (request) => {
     const value = early.get(id);
 
     early.delete(id);
-    return json({ value });
+    return answer(value);
   }
 
   return new Promise((resolve) => {
@@ -37,13 +43,15 @@ const read = async (request) => {
 
     waiting.set(id, (value) => {
       clearTimeout(timer);
-      resolve(json({ value }));
+      resolve(answer(value));
     });
   });
 };
 
-const write = async (request) => {
-  const { id, value } = await request.json();
+const write = async (request, url) => {
+  const { id, value } = url.searchParams.has("binary")
+    ? { id: url.searchParams.get("id"), value: await request.arrayBuffer() }
+    : await request.json();
   const resolve = waiting.get(id);
 
   if (resolve) {
@@ -70,7 +78,7 @@ self.addEventListener("fetch", (event) => {
   const action = url.pathname.slice(PREFIX.length);
 
   if (action === "read") event.respondWith(read(event.request));
-  else if (action === "write") event.respondWith(write(event.request));
+  else if (action === "write") event.respondWith(write(event.request, url));
   else if (action === "sleep") event.respondWith(sleep(url));
   else if (action === "ping") event.respondWith(json({ ok: true }));
 });

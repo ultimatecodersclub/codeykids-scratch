@@ -2,15 +2,20 @@
 // answers its input() through the service worker, and stops a program by
 // ending the worker (the next run starts a fresh one).
 
-import { syncReady, writeReply } from "../syncio";
+import { syncReady, writeBinaryReply, writeReply } from "../syncio";
+import { cameraClose, cameraOpen, cameraRead, detectHands, waitKey } from "./camera";
 import type { AiAccess, LoadMessage, RunMessage, WorkerMessage } from "./worker";
 
 export type { AiAccess };
+
+export type Picture = { bytes: Uint8Array; height: number; width: number };
 
 export type FullRunHandlers = {
   image: (bytes: Uint8Array) => void;
   input: (prompt: string) => Promise<string>;
   output: (text: string, kind: "out" | "info") => void;
+  // What cv2.imshow shows, or undefined once the program closes its windows.
+  window: (picture?: Picture) => void;
 };
 
 export type FullRunResult = {
@@ -25,6 +30,44 @@ let finish: ((result: FullRunResult) => void) | undefined;
 let handlers: FullRunHandlers | undefined;
 
 const STOPPED: FullRunResult = { changed: {}, deleted: [], error: { message: "Stopped" } };
+
+type CameraMessage = Extract<WorkerMessage, { type: "camera" }>;
+
+const answerCamera = async ({ action, bytes, id, payload }: CameraMessage) => {
+  const data = payload ? JSON.parse(payload) : {};
+
+  try {
+    switch (action) {
+      case "open":
+        await writeReply(id, JSON.stringify(await cameraOpen()));
+        break;
+      case "read": {
+        const picture = cameraRead();
+
+        await (picture ? writeBinaryReply(id, picture) : writeReply(id, "null"));
+        break;
+      }
+      case "detect":
+        await writeReply(id, JSON.stringify(await detectHands(bytes!, data.width, data.height, data.maxHands ?? 2)));
+        break;
+      case "key":
+        await writeReply(id, String(await waitKey(data.delay ?? 0)));
+        break;
+      case "show":
+        handlers?.window({ bytes: bytes!, height: data.height, width: data.width });
+        break;
+      case "hide":
+        handlers?.window(undefined);
+        break;
+      case "close":
+        cameraClose();
+        break;
+    }
+  } catch (error) {
+    if (action === "detect" || action === "open")
+      await writeReply(id, JSON.stringify({ error: `The camera tools stopped: ${String(error)}`, open: false }));
+  }
+};
 
 const onMessage = (event: MessageEvent<WorkerMessage>) => {
   const message = event.data;
@@ -45,10 +88,14 @@ const onMessage = (event: MessageEvent<WorkerMessage>) => {
     case "image":
       handlers?.image(message.bytes);
       break;
+    case "camera":
+      void answerCamera(message);
+      break;
     case "ready":
       loaded = true;
       break;
     case "done":
+      cameraClose();
       finish?.({ changed: message.changed, deleted: message.deleted, error: message.error });
       finish = undefined;
       handlers = undefined;
@@ -98,6 +145,7 @@ export const runFullPython = async (
 
 // A worker blocked in Python cannot be interrupted from here, so it goes.
 export const stopFullPython = () => {
+  cameraClose();
   worker?.terminate();
   worker = undefined;
   handlers = undefined;

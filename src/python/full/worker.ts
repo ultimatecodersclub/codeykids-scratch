@@ -40,6 +40,7 @@ type FS = {
 
 type Pyodide = {
   FS: FS;
+  loadPackage: (names: string[], options?: { messageCallback?: (message: string) => void }) => Promise<unknown>;
   loadPackagesFromImports: (code: string, options?: { messageCallback?: (message: string) => void }) => Promise<unknown>;
   runPython: (code: string) => unknown;
   setStderr: (options: { write: (buffer: Uint8Array) => number; isatty?: boolean }) => void;
@@ -62,6 +63,8 @@ export type WorkerMessage =
   | { text: string; type: "stdout" | "stderr" }
   | { id: string; prompt: string; type: "input" }
   | { bytes: Uint8Array; type: "image" }
+  // cv2 and mediapipe asking the page for the camera, a window or hands.
+  | { action: string; bytes?: Uint8Array; id: string; payload: string; type: "camera" }
   | { type: "ready" }
   | {
       changed: Record<string, Uint8Array>;
@@ -86,20 +89,54 @@ const request = (path: string, body?: unknown) => {
   return xhr;
 };
 
+const nextRequestId = () => `${Date.now()}-${(nextId += 1)}`;
+
+// Blocks until the page has answered request `id`: its JSON value, or the
+// bytes it wrote (a camera picture) when `binary`.
+const awaitReply = (id: string, binary = false): unknown => {
+  for (;;) {
+    const xhr = new XMLHttpRequest();
+
+    xhr.open("POST", `${IO}read`, false);
+    if (binary) xhr.responseType = "arraybuffer";
+    xhr.send(JSON.stringify({ id }));
+
+    if (xhr.status === 200) {
+      const isJson = xhr.getResponseHeader("Content-Type")?.includes("json");
+
+      if (!binary) return JSON.parse(xhr.responseText).value;
+
+      return isJson ? JSON.parse(decoder.decode(xhr.response as ArrayBuffer)).value : xhr.response;
+    }
+    if (xhr.status !== 408) throw new Error(`no answer (${xhr.status})`);
+  }
+};
+
 // Called by input(): asks the page, then blocks until it answers.
 self.codeykidsInput = (prompt: string) => {
   if (!syncAvailable) throw new Error("no service worker");
 
-  const id = `${Date.now()}-${(nextId += 1)}`;
+  const id = nextRequestId();
 
   post({ id, prompt, type: "input" });
 
-  for (;;) {
-    const xhr = request(`${IO}read`, { id });
+  return awaitReply(id) as string;
+};
 
-    if (xhr.status === 200) return JSON.parse(xhr.responseText).value as string;
-    if (xhr.status !== 408) throw new Error(`no answer (${xhr.status})`);
-  }
+// Actions the page answers; the rest (show, hide, close) it just carries out.
+const CAMERA_REPLIES = new Set(["detect", "key", "open", "read"]);
+
+// Called by the cv2 and mediapipe stand-ins. Answers JSON text, or the bytes
+// of a picture for "read".
+self.codeykidsCamera = (action: string, payload = "", bytes?: Uint8Array) => {
+  if (!syncAvailable) throw new Error("no service worker");
+
+  const id = nextRequestId();
+  const copy = bytes?.slice();
+
+  post({ action, bytes: copy, id, payload, type: "camera" }, copy ? [copy.buffer] : []);
+
+  return CAMERA_REPLIES.has(action) ? awaitReply(id, action === "read") : undefined;
 };
 
 // Called by time.sleep(): waits without spinning, a slice at a time.
@@ -154,6 +191,9 @@ self.codeykidsImage = (bytes: Uint8Array) => {
   post({ bytes: copy, type: "image" }, [copy.buffer]);
 };
 
+// Stand-ins that need packages the program's own imports do not name.
+const STANDIN_PACKAGES: [RegExp, string[]][] = [[/^[ \t]*(?:import|from)[ \t]+mediapipe/m, ["numpy", "opencv-python"]]];
+
 const stream = (type: "stdout" | "stderr") => {
   const decoder = new TextDecoder();
 
@@ -180,6 +220,9 @@ const load = () => {
     instance.FS.mkdirTree(MODULES_DIR);
 
     for (const [name, source] of Object.entries(MODULES)) {
+      const slash = name.lastIndexOf("/");
+
+      if (slash > 0) instance.FS.mkdirTree(`${MODULES_DIR}/${name.slice(0, slash)}`);
       instance.FS.writeFile(`${MODULES_DIR}/${name}`, new TextEncoder().encode(source));
     }
 
@@ -248,11 +291,14 @@ const run = async ({ ai: access, files, syncAvailable: available }: RunMessage) 
   let error: { file?: string; line?: number; message: string } | undefined;
 
   try {
-    await python.loadPackagesFromImports(code, {
-      messageCallback: (message) => {
-        if (message.startsWith("Loading ")) post({ text: `${message.replace(/\.*$/, "")}…`, type: "status" });
-      },
-    });
+    const extra = STANDIN_PACKAGES.filter(([pattern]) => pattern.test(code)).flatMap(([, names]) => names);
+    // "Loading matplotlib, numpy…" while packages download; the rest is noise.
+    const messageCallback = (message: string) => {
+      if (message.startsWith("Loading ")) post({ text: `${message.replace(/\.*$/, "")}…`, type: "status" });
+    };
+
+    if (extra.length > 0) await python.loadPackage(extra, { messageCallback });
+    await python.loadPackagesFromImports(code, { messageCallback });
 
     const result = python.runPython("_codeykids.run_main()") as string | undefined;
 

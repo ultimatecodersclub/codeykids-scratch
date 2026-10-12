@@ -47,3 +47,11 @@ export const writeReply = async (id: string, value: string) => {
     method: "POST",
   });
 };
+
+// A picture for the worker: bytes, not JSON.
+export const writeBinaryReply = async (id: string, bytes: Uint8Array) => {
+  await fetch(`/__codeykids__/io/write?binary&id=${encodeURIComponent(id)}`, {
+    body: bytes as BodyInit,
+    method: "POST",
+  });
+};

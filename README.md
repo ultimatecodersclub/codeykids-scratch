@@ -20,7 +20,12 @@ The editors CodeyKids embeds beside a lesson's steps, one static site:
     Stand-ins for libraries a browser cannot run live in
     `src/python/full/modules.ts`: `ollama` asks CodeyKids' hosted model
     through the `aiChat` mutation, with a token the lesson page hands over
-    in a `setAi` message.
+    in a `setAi` message; `mediapipe` (the legacy `mp.solutions.hands`)
+    finds hands with Google's hand tracker for the browser. Real OpenCV runs,
+    with its camera, windows and keys answered by the page
+    (`src/python/full/camera.ts`): `cv2.VideoCapture` reads the webcam,
+    `cv2.imshow` draws above the output, `cv2.waitKey` reads keys pressed
+    on it.
   - **Pygame Zero** (pygame-ce in Pyodide, on the page's thread) for programs
     that import `pgzrun`: Pygame Zero's game loop is replaced by one that gives
     the browser a turn every frame. Pygame Zero 1.2.1 ships in

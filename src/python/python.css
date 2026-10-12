@@ -56,3 +56,10 @@ button { font: inherit; cursor: pointer; }
 .output.game .game { display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #cbd5e1; background: #0f172a; overflow: hidden; }
 .output.game .game canvas { max-width: 100% !important; max-height: 100% !important; width: auto !important; height: auto !important; object-fit: contain; outline: none; }
 .output.game .game canvas:focus { box-shadow: 0 0 0 2px #38bdf8; }
+/* cv2.imshow: the program's window above its output. */
+.output .window { display: none; }
+.output.window-open { grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+.output.window-open .turtle, .output.window-open .game { display: none; }
+.output.window-open .window { display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #cbd5e1; background: #0f172a; overflow: hidden; }
+.output.window-open .window canvas { max-width: 100%; max-height: 100%; object-fit: contain; outline: none; }
+.output.window-open .window canvas:focus { box-shadow: 0 0 0 2px #38bdf8; }

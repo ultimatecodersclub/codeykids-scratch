@@ -80,6 +80,82 @@ def _patch_pillow():
     Image.Image.show = show
 
 
+def _patch_cv2():
+    # OpenCV runs for real; only its camera, windows and keys are the page's.
+    import json
+    import numpy as np
+    import cv2
+
+    if getattr(cv2, "codeykids", False):
+        return
+
+    class VideoCapture:
+        def __init__(self, index=0, *args):
+            info = json.loads(str(js.codeykidsCamera("open", json.dumps({"index": index}))))
+            self._open = bool(info.get("open"))
+            self._width = info.get("width", 640)
+            self._height = info.get("height", 480)
+            if not self._open:
+                print(info.get("message", "The camera did not start."), file=sys.stderr)
+
+        def isOpened(self):
+            return self._open
+
+        def read(self):
+            if not self._open:
+                return False, None
+            data = js.codeykidsCamera("read", "")
+            if isinstance(data, str) or data is None:
+                return False, None
+            frame = np.frombuffer(data.to_bytes(), dtype=np.uint8)
+            return True, frame.reshape(self._height, self._width, 3).copy()
+
+        def release(self):
+            if self._open:
+                js.codeykidsCamera("close", "")
+                self._open = False
+
+        def get(self, prop):
+            if prop == cv2.CAP_PROP_FRAME_WIDTH:
+                return float(self._width)
+            if prop == cv2.CAP_PROP_FRAME_HEIGHT:
+                return float(self._height)
+            return 0.0
+
+        def set(self, prop, value):
+            return False
+
+    def imshow(name, image):
+        image = np.asarray(image)
+        if image.ndim == 2:
+            image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        if image.dtype != np.uint8:
+            image = np.clip(image, 0, 255).astype(np.uint8)
+        image = np.ascontiguousarray(image[:, :, :3])
+        height, width = image.shape[:2]
+        js.codeykidsCamera("show", json.dumps({"height": height, "name": str(name), "width": width}), to_js(image.tobytes()))
+
+    def waitKey(delay=0):
+        return int(js.codeykidsCamera("key", json.dumps({"delay": int(delay)})))
+
+    def destroyAllWindows():
+        js.codeykidsCamera("hide", "")
+
+    def destroyWindow(name):
+        js.codeykidsCamera("hide", "")
+
+    def namedWindow(*args, **kwargs):
+        pass
+
+    cv2.VideoCapture = VideoCapture
+    cv2.imshow = imshow
+    cv2.waitKey = waitKey
+    cv2.destroyAllWindows = destroyAllWindows
+    cv2.destroyWindow = destroyWindow
+    cv2.namedWindow = namedWindow
+    cv2.codeykids = True
+
+
 def _imports():
     from pyodide.code import find_imports
 
@@ -160,6 +236,8 @@ def run_main():
         _patch_matplotlib()
     if "PIL" in imports:
         _patch_pillow()
+    if "cv2" in imports or "mediapipe" in imports:
+        _patch_cv2()
 
     try:
         runpy.run_path(PROJECT + "/main.py", run_name="__main__")
