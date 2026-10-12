@@ -346,7 +346,9 @@ const PythonEditor = () => {
 
     setPending(undefined);
     setRunning(false);
-    report(error);
+    // Stop answers a waiting input() with "", so int(input()) fails after
+    // the kid pressed Stop: that is the stop, not an error in their code.
+    report(stopRef.current ? { message: "Stopped" } : error);
   };
 
   const stop = () => {
