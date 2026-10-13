@@ -135,6 +135,7 @@ export const useEditorBridge = ({
           await vm.loadProject(project.data);
         }
 
+        valuesRef.current = valuesOf(vm);
         if (message.readOnly !== undefined) setIsPlayerOnly(message.readOnly);
 
         postToPage({ type: "loaded" });
@@ -142,9 +143,10 @@ export const useEditorBridge = ({
         postToPage({ type: "loadFailed", message: String(error) });
       } finally {
         // The VM emits PROJECT_CHANGED asynchronously after load; wait a tick.
+        // A run started meanwhile is held to the values the project came with.
         setTimeout(() => {
           loadingProjectRef.current = false;
-          if (vmRef.current) valuesRef.current = valuesOf(vmRef.current);
+          checkValues();
         }, CHANGED_THROTTLE_MS);
       }
     };
