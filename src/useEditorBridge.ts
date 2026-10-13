@@ -3,10 +3,26 @@ import { useEffect, useRef } from "react";
 import { answerSnapshot, listenToPage, PageToEditor, postToPage } from "./bridge";
 import type { ScratchVM } from "./main";
 import { loadImage, pictureOf } from "./snapshot";
+import { setTranslateAccess } from "./translate";
 
 const PROJECT_CHANGED = "PROJECT_CHANGED";
+const PROJECT_RUN_START = "PROJECT_RUN_START";
+const PROJECT_RUN_STOP = "PROJECT_RUN_STOP";
 const CHANGED_THROTTLE_MS = 1000;
+// The GUI's own new project, the cat.
+const DEFAULT_PROJECT_ID = "0";
 const SNAPSHOT_TIMEOUT_MS = 3000;
+// How often a run's values are looked at while it goes on.
+const VALUES_CHECK_MS = 5000;
+
+// What a run changes without Scratch calling it an edit: the values in the
+// variables and lists of the stage and each sprite (a clone's go with it).
+const valuesOf = (vm: ScratchVM) =>
+  JSON.stringify(
+    vm.runtime.targets
+      .filter((target) => target.isOriginal)
+      .map((target) => Object.values(target.variables).map((variable) => [variable.id, variable.value])),
+  );
 
 // The stage as the renderer draws it now, sprites and backdrop and pen.
 const pictureOfStage = async (vm: ScratchVM | null) => {
@@ -39,6 +55,8 @@ export const useEditorBridge = ({
   const vmRef = useRef<ScratchVM | null>(null);
   const lastChangedAtRef = useRef(0);
   const loadingProjectRef = useRef(false);
+  const valuesCheckRef = useRef<number>(undefined);
+  const valuesRef = useRef("");
 
   const onProjectChanged = () => {
     // loadProject fires PROJECT_CHANGED itself; that is not a kid's edit.
@@ -51,10 +69,40 @@ export const useEditorBridge = ({
     postToPage({ type: "changed" });
   };
 
+  // A score a game keeps is a value, which Scratch never reports as an edit,
+  // so it would be lost on close. Values unlike the last ones seen count as
+  // one: when a run stops, and every few seconds while it goes on.
+  const checkValues = () => {
+    const vm = vmRef.current;
+
+    if (!vm || loadingProjectRef.current) return;
+
+    const values = valuesOf(vm);
+
+    if (values === valuesRef.current) return;
+
+    valuesRef.current = values;
+    postToPage({ type: "changed" });
+  };
+
+  const onRunStart = () => {
+    window.clearInterval(valuesCheckRef.current);
+    valuesCheckRef.current = window.setInterval(checkValues, VALUES_CHECK_MS);
+  };
+
+  const onRunStop = () => {
+    window.clearInterval(valuesCheckRef.current);
+    checkValues();
+  };
+
   const onVmInit = (vm: ScratchVM) => {
     vmRef.current?.runtime.off(PROJECT_CHANGED, onProjectChanged);
+    vmRef.current?.runtime.off(PROJECT_RUN_START, onRunStart);
+    vmRef.current?.runtime.off(PROJECT_RUN_STOP, onRunStop);
     vmRef.current = vm;
     vm.runtime.on(PROJECT_CHANGED, onProjectChanged);
+    vm.runtime.on(PROJECT_RUN_START, onRunStart);
+    vm.runtime.on(PROJECT_RUN_STOP, onRunStop);
 
     // Lets the spike host page poke the VM from devtools.
     if (import.meta.env.DEV) (window as Window & { vm?: ScratchVM }).vm = vm;
@@ -66,6 +114,7 @@ export const useEditorBridge = ({
       if (!vm) return postToPage({ type: "loadFailed", message: "VM not ready" });
 
       loadingProjectRef.current = true;
+      if (message.ai) setTranslateAccess(message.ai);
 
       try {
         if (message.file) {
@@ -75,6 +124,15 @@ export const useEditorBridge = ({
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
           await vm.loadProject(await response.arrayBuffer());
+        } else {
+          // No project: the cat, as File > New gives, never what the last
+          // worksheet left open.
+          const { storage } = vm.runtime;
+          const project = await storage.load(storage.AssetType.Project, DEFAULT_PROJECT_ID, storage.DataFormat.JSON);
+
+          if (!project) throw new Error("The new project is missing");
+
+          await vm.loadProject(project.data);
         }
 
         if (message.readOnly !== undefined) setIsPlayerOnly(message.readOnly);
@@ -86,6 +144,7 @@ export const useEditorBridge = ({
         // The VM emits PROJECT_CHANGED asynchronously after load; wait a tick.
         setTimeout(() => {
           loadingProjectRef.current = false;
+          if (vmRef.current) valuesRef.current = valuesOf(vmRef.current);
         }, CHANGED_THROTTLE_MS);
       }
     };
@@ -123,6 +182,9 @@ export const useEditorBridge = ({
           break;
         case "snapshot":
           void answerSnapshot(message.requestId, () => pictureOfStage(vmRef.current));
+          break;
+        case "setAi":
+          setTranslateAccess(message.ai);
           break;
         case "setReadOnly":
           setIsPlayerOnly(message.value);
