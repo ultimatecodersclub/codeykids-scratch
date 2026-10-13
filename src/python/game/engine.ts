@@ -1,9 +1,11 @@
 // Pygame Zero games, in real Python on the page's own thread: pygame-ce
-// draws into the canvas given, keys reach it from the page, and sounds play
-// through the browser. One Python is kept between runs; each run forgets the
-// project's modules and Pygame Zero's, so it starts clean.
+// draws into the canvas given, keys reach it while that canvas has the focus,
+// and sounds play through the browser. One Python is kept between runs; each
+// run forgets the project's modules and Pygame Zero's, so it starts clean.
 
 import { GAME_PRELUDE } from "./prelude";
+
+export { GAME_CANVAS_ID } from "./prelude";
 
 const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/";
 const PGZERO_WHEEL = "/python/pgzero-1.2.1-py3-none-any.whl";
@@ -137,4 +139,10 @@ export const runGame = async (
 
 export const stopGame = () => {
   void python?.then((instance) => instance.runPython("_codeykids_game.stop()"));
+};
+
+// For when the game's canvas loses the focus: the keys still held are let go
+// of, since the game won't see them come up.
+export const releaseGameKeys = () => {
+  if (loaded) void python?.then((instance) => instance.runPython("_codeykids_game.release_keys()"));
 };

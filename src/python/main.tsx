@@ -8,7 +8,7 @@ import { CodeEditor } from "../web/CodeEditor";
 import { Engine, engineFor } from "./engine";
 import { pressKey, showWindow } from "./full/camera";
 import { AiAccess, runFullPython, stopFullPython, warmUpFullPython } from "./full/client";
-import { runGame, stopGame, warmUpGame } from "./game/engine";
+import { GAME_CANVAS_ID, releaseGameKeys, runGame, stopGame, warmUpGame } from "./game/engine";
 import { bytesOf, fromBytes, isText, MAIN, PythonFiles, starterFiles, toBlob } from "./project";
 import { RunError, runPython } from "./runner";
 import { syncReady } from "./syncio";
@@ -538,11 +538,14 @@ const PythonEditor = () => {
         )}
       </main>
 
-      <section className={`output ${shownEngine}${windowOpen ? " window-open" : ""}`}>
+      <section className={`output ${shownEngine}${windowOpen ? " window-open" : ""}${running ? " running" : ""}`}>
         <div className="turtle" id={TURTLE_TARGET} ref={turtleRef} />
         <div className="game">
-          {/* pygame draws here; tabIndex lets it take the keys. */}
-          <canvas id="canvas" ref={gameRef} tabIndex={0} />
+          {/* pygame draws here and listens for keys on it alone, so the code
+              can be typed into while a game runs; tabIndex lets it take the
+              focus. */}
+          <canvas id={GAME_CANVAS_ID} onBlur={releaseGameKeys} ref={gameRef} tabIndex={0} />
+          <span className="game-hint">Click the game to use the keys</span>
         </div>
         <div className="window">
           {/* cv2.imshow draws here; cv2.waitKey reads the keys pressed on it. */}

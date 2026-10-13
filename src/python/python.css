@@ -53,9 +53,13 @@ button { font: inherit; cursor: pointer; }
 .output.full, .output.pygame { grid-template-rows: 0 minmax(0, 1fr); }
 .output.full .turtle, .output.pygame .turtle { border-bottom: 0; }
 .output.game .turtle { display: none; }
-.output.game .game { display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #cbd5e1; background: #0f172a; overflow: hidden; }
+.output.game .game { position: relative; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #cbd5e1; background: #0f172a; overflow: hidden; }
 .output.game .game canvas { max-width: 100% !important; max-height: 100% !important; width: auto !important; height: auto !important; object-fit: contain; outline: none; }
 .output.game .game canvas:focus { box-shadow: 0 0 0 2px #38bdf8; }
+/* A game only gets the keys while it has the focus; while it runs without it,
+   this says how to give it back. */
+.output .game-hint { display: none; position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); padding: 3px 10px; border-radius: 999px; background: rgba(15, 23, 42, 0.85); color: #e2e8f0; font: 12px/1.4 system-ui, sans-serif; white-space: nowrap; pointer-events: none; }
+.output.game.running .game canvas:not(:focus) + .game-hint { display: block; }
 /* cv2.imshow: the program's window above its output. */
 .output .window { display: none; }
 .output.window-open { grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
