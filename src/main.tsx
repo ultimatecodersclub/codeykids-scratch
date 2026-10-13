@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 
 import { postToPage } from "./bridge";
 import { MenuBridge } from "./menuBridge";
+import { routeTranslations } from "./translate";
 import { useEditorBridge } from "./useEditorBridge";
 
 // Minimal shape of the parts of scratch-vm this wrapper touches.
@@ -19,6 +20,14 @@ export type ScratchVM = {
   runtime: {
     on: (event: string, listener: () => void) => void;
     off: (event: string, listener: () => void) => void;
+    // scratch-storage, which holds the GUI's bundled default project.
+    storage: {
+      AssetType: { Project: unknown };
+      DataFormat: { JSON: unknown };
+      load: (type: unknown, id: string, format: unknown) => Promise<{ data: ArrayBuffer | string } | null>;
+    };
+    // The stage and every sprite, clones included.
+    targets: { isOriginal: boolean; variables: Record<string, { id: string; value: unknown }> }[];
   };
   stopAll: () => void;
 };
@@ -68,6 +77,8 @@ const App = () => {
     />
   );
 };
+
+routeTranslations();
 
 const target = document.getElementById("app")!;
 

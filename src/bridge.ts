@@ -30,8 +30,9 @@ export type MenuState = {
 export type PageToEditor =
   // `file` is the project itself; `url` is fetched by the editor. A page that
   // already has the bytes passes `file` and skips CORS on this origin.
-  // `ai` lets the Python editor's ollama stand-in ask CodeyKids' AI: the
-  // GraphQL URL and a token good for that alone.
+  // `ai` lets the editors ask CodeyKids' AI (Python's ollama stand-in,
+  // Scratch's Translate block): the GraphQL URL and a token good for that
+  // alone.
   | { type: "load"; ai?: { token: string; url: string }; file?: Blob; url?: string | null; readOnly?: boolean }
   // The AI token arrives, or is renewed, after the project loaded.
   | { type: "setAi"; ai: { token: string; url: string } }
@@ -45,7 +46,10 @@ export type EditorToPage =
   | { type: "ready" }
   | { type: "loaded" }
   | { type: "loadFailed"; message: string }
-  | { type: "changed" }
+  // `byRun` when only values a running project set changed (a score, say),
+  // so the page can save them less eagerly than an edit, or not at all for
+  // an instructor trying a kid's game.
+  | { type: "changed"; byRun?: boolean }
   | { type: "saved"; requestId: string; file: Blob }
   | { type: "saveFailed"; requestId: string; message: string }
   | { type: "snapshot"; requestId: string; image: Blob }
