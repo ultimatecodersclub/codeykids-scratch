@@ -230,7 +230,11 @@ const load = () => {
     post({ type: "ready" });
 
     return instance;
-  })();
+  })().catch((error: unknown) => {
+    // Not kept: the next Run tries again, the page having been offline, say.
+    pyodide = undefined;
+    throw error;
+  });
 
   return pyodide;
 };
@@ -268,7 +272,18 @@ const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every(
 const decoder = new TextDecoder();
 
 const run = async ({ ai: access, files, syncAvailable: available }: RunMessage) => {
-  const python = await load();
+  let python: Pyodide;
+
+  try {
+    python = await load();
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    const message = `Python did not start (${reason}). Check the internet connection, then press Run again.`;
+
+    post({ changed: {}, deleted: [], error: { message }, type: "done" });
+    return;
+  }
+
   const fs = python.FS;
 
   syncAvailable = available;
@@ -323,6 +338,7 @@ const run = async ({ ai: access, files, syncAvailable: available }: RunMessage) 
 };
 
 self.onmessage = (event: MessageEvent<RunMessage | LoadMessage>) => {
-  if (event.data.type === "load") void load();
+  // A warm-up that fails says nothing; the Run after it reports why.
+  if (event.data.type === "load") load().catch(() => undefined);
   else void run(event.data);
 };

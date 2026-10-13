@@ -105,9 +105,16 @@ const PythonEditor = () => {
     setLines((current) => {
       const next = [...current, ...incoming];
 
-      return next.length <= CONSOLE_CAP
-        ? next
-        : [{ ...TRIMMED, id: (lineId.current += 1) }, ...next.slice(-(CONSOLE_CAP / 2))];
+      if (next.length <= CONSOLE_CAP) return next;
+
+      const kept = next.slice(-(CONSOLE_CAP / 2));
+      // A trimmed chart gives its picture back (revoking twice is harmless).
+      const dropped = new Set(next.slice(0, -(CONSOLE_CAP / 2)).flatMap((line) => (line.kind === "image" ? [line.url] : [])));
+
+      dropped.forEach((url) => URL.revokeObjectURL(url));
+      imageUrls.current = imageUrls.current.filter((url) => !dropped.has(url));
+
+      return [{ ...TRIMMED, id: (lineId.current += 1) }, ...kept];
     });
   }, []);
 
@@ -246,7 +253,13 @@ const PythonEditor = () => {
     if (deleted.includes(active) && active !== MAIN) setActive(MAIN);
   };
 
-  const ask = (prompt: string) => new Promise<string>((resolve) => setPending({ prompt, resolve }));
+  // What the program printed goes in before its question does.
+  const ask = (prompt: string) =>
+    new Promise<string>((resolve) => {
+      window.clearTimeout(flushTimer.current);
+      if (queued.current.length > 0) flush();
+      setPending({ prompt, resolve });
+    });
 
   const runFull = async () => {
     const bytes: Record<string, Uint8Array> = {};
@@ -261,12 +274,15 @@ const PythonEditor = () => {
         output: (text, kind) => append({ kind, text }),
         window: (picture) => {
           const canvas = windowRef.current;
-
           // The first picture takes the keys, so "press q to quit" works
-          // without a click on the window first.
-          if (picture && canvas && canvas.width === 0) canvas.focus();
-          setWindowOpen(!!picture);
+          // without a click on the window first. A hidden canvas can't take
+          // focus, so the window is shown before that.
+          const first = !!picture && !!canvas && canvas.width === 0;
+
+          if (first) flushSync(() => setWindowOpen(true));
+          else setWindowOpen(!!picture);
           if (picture && canvas) showWindow(canvas, picture.bytes, picture.width, picture.height);
+          if (first && canvas) canvas.focus();
         },
       },
       aiRef.current,

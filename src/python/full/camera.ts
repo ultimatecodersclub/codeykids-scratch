@@ -24,6 +24,7 @@ let hands = 0;
 let timestamp = 0;
 let lastKey = -1;
 let keyWaiter: (() => void) | undefined;
+let keyTimer: number | undefined;
 
 export const cameraOpen = async () => {
   try {
@@ -77,6 +78,8 @@ export const cameraClose = () => {
   grab = undefined;
   lastKey = -1;
   keyWaiter = undefined;
+  window.clearTimeout(keyTimer);
+  keyTimer = undefined;
 };
 
 // RGB or BGR bytes to a picture the browser can draw.
@@ -110,7 +113,11 @@ const loadLandmarker = () => {
       numHands: 2,
       runningMode: "VIDEO",
     })) as HandLandmarker;
-  })();
+  })().catch((error: unknown) => {
+    // Not kept: the next frame tries the download again.
+    landmarker = undefined;
+    throw error;
+  });
 
   return landmarker;
 };
@@ -150,6 +157,7 @@ export const waitKey = (delay: number) =>
   new Promise<number>((resolve) => {
     const finish = () => {
       keyWaiter = undefined;
+      keyTimer = undefined;
 
       const key = lastKey;
 
@@ -158,7 +166,8 @@ export const waitKey = (delay: number) =>
     };
 
     if (delay > 0) {
-      setTimeout(finish, delay);
+      // Closing the camera clears it, so it can't end the next run's wait.
+      keyTimer = window.setTimeout(finish, delay);
     } else if (lastKey >= 0) {
       finish();
     } else {

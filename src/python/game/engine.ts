@@ -70,7 +70,11 @@ const load = () => {
     loaded = true;
 
     return instance;
-  })();
+  })().catch((error: unknown) => {
+    // Not kept: the next Run tries again.
+    python = undefined;
+    throw error;
+  });
 
   return python;
 };
