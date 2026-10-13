@@ -46,7 +46,10 @@ export type EditorToPage =
   | { type: "ready" }
   | { type: "loaded" }
   | { type: "loadFailed"; message: string }
-  | { type: "changed" }
+  // `byRun` when only values a running project set changed (a score, say),
+  // so the page can save them less eagerly than an edit, or not at all for
+  // an instructor trying a kid's game.
+  | { type: "changed"; byRun?: boolean }
   | { type: "saved"; requestId: string; file: Blob }
   | { type: "saveFailed"; requestId: string; message: string }
   | { type: "snapshot"; requestId: string; image: Blob }

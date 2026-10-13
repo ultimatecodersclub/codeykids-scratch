@@ -82,7 +82,7 @@ export const useEditorBridge = ({
     if (values === valuesRef.current) return;
 
     valuesRef.current = values;
-    postToPage({ type: "changed" });
+    postToPage({ byRun: true, type: "changed" });
   };
 
   const onRunStart = () => {
