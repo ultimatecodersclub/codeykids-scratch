@@ -18,5 +18,13 @@ export default defineConfig({
     },
   },
   plugins: [react()],
+  // The Python editor's real-Python worker lives under /python/, inside the
+  // scope of the service worker that lets it wait for input().
+  worker: {
+    format: "es",
+    rollupOptions: {
+      output: { chunkFileNames: "python/[name]-[hash].js", entryFileNames: "python/[name]-[hash].js" },
+    },
+  },
   server: { port: 8601 },
 });

@@ -30,7 +30,11 @@ export type MenuState = {
 export type PageToEditor =
   // `file` is the project itself; `url` is fetched by the editor. A page that
   // already has the bytes passes `file` and skips CORS on this origin.
-  | { type: "load"; file?: Blob; url?: string | null; readOnly?: boolean }
+  // `ai` lets the Python editor's ollama stand-in ask CodeyKids' AI: the
+  // GraphQL URL and a token good for that alone.
+  | { type: "load"; ai?: { token: string; url: string }; file?: Blob; url?: string | null; readOnly?: boolean }
+  // The AI token arrives, or is renewed, after the project loaded.
+  | { type: "setAi"; ai: { token: string; url: string } }
   | { type: "save"; requestId: string }
   // A picture of the work as it stands, for the project card.
   | { type: "snapshot"; requestId: string }

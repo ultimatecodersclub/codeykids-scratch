@@ -43,3 +43,23 @@ button { font: inherit; cursor: pointer; }
 .console .info { color: #94a3b8; }
 .prompt { display: flex; gap: 6px; }
 .prompt input { flex: 1; font: inherit; background: #1e293b; color: #fff; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; }
+.files-buttons { display: inline-flex; gap: 2px; }
+.binary { flex-direction: column; gap: 10px; padding: 16px; }
+.binary img { max-width: 100%; max-height: 70%; object-fit: contain; border: 1px solid #e2e8f0; background: #fff; }
+.console img.figure { display: block; max-width: 100%; margin: 6px 0; background: #fff; border-radius: 4px; }
+/* The top of the output: turtle's drawing in Skulpt, a game in Pygame
+   Zero, nothing for real Python (its charts go into the console). */
+.output .game { display: none; }
+.output.full, .output.pygame { grid-template-rows: 0 minmax(0, 1fr); }
+.output.full .turtle, .output.pygame .turtle { border-bottom: 0; }
+.output.game .turtle { display: none; }
+.output.game .game { display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #cbd5e1; background: #0f172a; overflow: hidden; }
+.output.game .game canvas { max-width: 100% !important; max-height: 100% !important; width: auto !important; height: auto !important; object-fit: contain; outline: none; }
+.output.game .game canvas:focus { box-shadow: 0 0 0 2px #38bdf8; }
+/* cv2.imshow: the program's window above its output. */
+.output .window { display: none; }
+.output.window-open { grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+.output.window-open .turtle, .output.window-open .game { display: none; }
+.output.window-open .window { display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #cbd5e1; background: #0f172a; overflow: hidden; }
+.output.window-open .window canvas { max-width: 100%; max-height: 100%; object-fit: contain; outline: none; }
+.output.window-open .window canvas:focus { box-shadow: 0 0 0 2px #38bdf8; }

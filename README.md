@@ -5,11 +5,31 @@ The editors CodeyKids embeds beside a lesson's steps, one static site:
 - `/` — Scratch 3 (`@scratch/scratch-gui`)
 - `/web/` — the web design editor: a file list, CodeMirror, and a sandboxed
   live preview; projects save as a zip
-- `/python/` — the Python editor: CodeMirror and Skulpt, so turtle and
-  `input()` programs run in the browser. `main.py` runs; other `.py` files
-  are imported as modules and `.txt`/`.csv`/`.json`/`.md` files are read
-  with `open()`. A project of `main.py` alone saves as `main.py`, anything
-  more as a zip
+- `/python/` — the Python editor. `main.py` runs; other `.py` files are
+  imported as modules, and the project's other files (data, images, sounds,
+  folders) are its working folder. A project of `main.py` alone saves as
+  `main.py`, anything more as a zip. Three engines, picked from what the
+  project imports (`src/python/engine.ts`):
+  - **Skulpt** for turtle and plain programs (starts at once).
+  - **Real Python** (Pyodide, in a worker) for anything Skulpt lacks:
+    matplotlib, PIL, numpy, pandas, os, json, csv, requests… Packages load on
+    first use from the Pyodide CDN. `plt.show()` and `Image.show()` draw into
+    the output; files the program writes save with the project. `input()` and
+    `time.sleep()` block through a small service worker (`public/editor-sw.js`),
+    so the page embedding the editor needs no cross-origin isolation headers.
+    Stand-ins for libraries a browser cannot run live in
+    `src/python/full/modules.ts`: `ollama` asks CodeyKids' hosted model
+    through the `aiChat` mutation, with a token the lesson page hands over
+    in a `setAi` message; `mediapipe` (the legacy `mp.solutions.hands`)
+    finds hands with Google's hand tracker for the browser. Real OpenCV runs,
+    with its camera, windows and keys answered by the page
+    (`src/python/full/camera.ts`): `cv2.VideoCapture` reads the webcam,
+    `cv2.imshow` draws above the output, `cv2.waitKey` reads keys pressed
+    on it.
+  - **Pygame Zero** (pygame-ce in Pyodide, on the page's thread) for programs
+    that import `pgzrun`: Pygame Zero's game loop is replaced by one that gives
+    the browser a turn every frame. Pygame Zero 1.2.1 ships in
+    `public/python/` (LGPL-3.0, https://pygame-zero.readthedocs.io).
 
 The Scratch 3 editor that CodeyKids embeds next to a lesson's steps. It wraps
 the Scratch Foundation's `@scratch/scratch-gui` with a tiny `postMessage`
