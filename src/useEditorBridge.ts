@@ -8,11 +8,14 @@ const PROJECT_CHANGED = "PROJECT_CHANGED";
 const CHANGED_THROTTLE_MS = 1000;
 const SNAPSHOT_TIMEOUT_MS = 3000;
 
-// The stage as the renderer draws it now, sprites and backdrop and pen.
+// The stage as the renderer draws it now, sprites and backdrop and pen, but
+// never the camera: with Video Sensing on, the stage shows the kid's face,
+// and this picture goes on the project card. Scratch's own thumbnail hides
+// the video the same way.
 const pictureOfStage = async (vm: ScratchVM | null) => {
   const renderer = vm?.renderer;
 
-  if (!renderer) throw new Error("The stage is not ready");
+  if (!vm || !renderer) throw new Error("The stage is not ready");
 
   const dataURL = await new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("The stage did not draw")), SNAPSHOT_TIMEOUT_MS);
@@ -21,8 +24,11 @@ const pictureOfStage = async (vm: ScratchVM | null) => {
       clearTimeout(timer);
       resolve(url);
     });
-    // A project that is not running draws nothing on its own.
+    // A project that is not running draws nothing on its own. The picture
+    // is taken inside this draw, so the camera is hidden for it alone.
+    vm.postIOData("video", { forceTransparentPreview: true });
     renderer.draw();
+    vm.postIOData("video", { forceTransparentPreview: false });
   });
   const image = await loadImage(dataURL);
 
