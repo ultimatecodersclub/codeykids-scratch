@@ -10,6 +10,8 @@ import { useEditorBridge } from "./useEditorBridge";
 // Minimal shape of the parts of scratch-vm this wrapper touches.
 export type ScratchVM = {
   loadProject: (input: ArrayBuffer | string | object) => Promise<void>;
+  // Settings for an input device, such as hiding the camera's picture.
+  postIOData: (device: string, data: object) => void;
   saveProjectSb3: () => Promise<Blob>;
   // scratch-render: the callback gets the stage as a data URL at its next
   // draw.
