@@ -6,6 +6,10 @@
 //
 // Keep backslashes out of this string: the template literal would eat them.
 
+// The id of the canvas a game draws on, which is also where pygame listens
+// for keys.
+export const GAME_CANVAS_ID = "canvas";
+
 export const GAME_PRELUDE = `
 import asyncio
 import json
@@ -25,9 +29,9 @@ os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 # swallows every letter, so once a game had run the code could not be typed
 # into until the page was reloaded. It listens on the game's canvas instead:
 # the game gets the keys while it has the focus, the code the rest of the time.
-os.environ["SDL_EMSCRIPTEN_KEYBOARD_ELEMENT"] = "#canvas"
+os.environ["SDL_EMSCRIPTEN_KEYBOARD_ELEMENT"] = "#${GAME_CANVAS_ID}"
 
-_state = types.SimpleNamespace(stopped=False)
+_state = types.SimpleNamespace(running=False, stopped=False)
 _print_exc = traceback.print_exc
 
 
@@ -112,6 +116,20 @@ def stop():
     _state.stopped = True
 
 
+# A key let go of after the game lost the focus is never seen by the game,
+# which would keep it held: a sprite moving while keyboard.right is true
+# would slide on. So losing the focus lets go of every key still held.
+def release_keys():
+    if not _state.running:
+        return
+
+    import pygame
+    from pgzero.keyboard import keyboard
+
+    for key in list(keyboard._pressed):
+        pygame.event.post(pygame.event.Event(pygame.KEYUP, key=key, mod=0, scancode=0, unicode=""))
+
+
 def _where(path):
     if not path:
         return None
@@ -166,6 +184,7 @@ async def run_game():
         with open(path, encoding="utf-8") as source:
             code = compile(source.read(), path, "exec", dont_inherit=True)
         exec(code, module.__dict__)
+        _state.running = True
         for game in games:
             await _mainloop(game)
         if _state.stopped:
@@ -175,6 +194,7 @@ async def run_game():
     except BaseException as error:
         return json.dumps(_describe(error))
     finally:
+        _state.running = False
         sys.modules["__main__"] = main
         sys.stdout.flush()
         try:
@@ -185,5 +205,5 @@ async def run_game():
     return None
 
 
-_codeykids_game = types.SimpleNamespace(run_game=run_game, stop=stop)
+_codeykids_game = types.SimpleNamespace(release_keys=release_keys, run_game=run_game, stop=stop)
 `;
