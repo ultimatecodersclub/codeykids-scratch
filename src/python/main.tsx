@@ -541,7 +541,8 @@ const PythonEditor = () => {
       <section className={`output ${shownEngine}${windowOpen ? " window-open" : ""}`}>
         <div className="turtle" id={TURTLE_TARGET} ref={turtleRef} />
         <div className="game">
-          {/* pygame draws here; tabIndex lets it take the keys. */}
+          {/* pygame draws here and listens for keys on this id (the game
+              prelude names it); tabIndex lets it take the focus. */}
           <canvas id="canvas" ref={gameRef} tabIndex={0} />
         </div>
         <div className="window">

@@ -21,6 +21,11 @@ FRAME = 1 / 60
 # pygame greets with its version on import; a kid's output should not start
 # with it.
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
+# pygame's browser layer listens for keys on the whole page by default and
+# swallows every letter, so once a game had run the code could not be typed
+# into until the page was reloaded. It listens on the game's canvas instead:
+# the game gets the keys while it has the focus, the code the rest of the time.
+os.environ["SDL_EMSCRIPTEN_KEYBOARD_ELEMENT"] = "#canvas"
 
 _state = types.SimpleNamespace(stopped=False)
 _print_exc = traceback.print_exc
