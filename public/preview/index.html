@@ -69,8 +69,21 @@
         };
 
         // The meta file goes last: the versions it lists are of files fully
-        // written, so a run cut short by the next one is sent again.
+        // written, so a run cut short by the next one is sent again. The
+        // site's saved data goes to this frame's own sessionStorage, where
+        // prelude.js picks it up, not into the cache other sites on this
+        // host could open; only when it doesn't fit there does it go in the
+        // meta file.
         const write = async ({ epoch, files, page, storage, versions }) => {
+          let spilled = storage;
+
+          try {
+            sessionStorage.setItem(`codeykids:${session}:${epoch}:local`, JSON.stringify(storage));
+            spilled = undefined;
+          } catch (error) {
+            // Too big for sessionStorage: carried in the meta file instead.
+          }
+
           const cache = await caches.open(CACHE_PREFIX + session);
           // As the cache names them, so "./a.css" and "a.css" are one file.
           const keep = new Set([...Object.keys(versions), META].map((path) => keyOf(path).url));
@@ -84,7 +97,7 @@
           }
           await cache.put(
             keyOf(META),
-            new Response(JSON.stringify({ editorOrigin: editor, epoch, savedAt: Date.now(), session, storage, versions })),
+            new Response(JSON.stringify({ editorOrigin: editor, epoch, savedAt: Date.now(), session, storage: spilled, versions })),
           );
           location.replace(base + encodePath(page));
         };

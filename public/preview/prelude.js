@@ -27,7 +27,8 @@
   };
 
   // This host's real sessionStorage carries the stand-ins from page to page
-  // within a run; the editor's copy starts each run.
+  // within a run; the bridge puts the editor's copy there to start each run
+  // (or in the run's settings, when it is too big for sessionStorage).
   let real = null;
 
   try {

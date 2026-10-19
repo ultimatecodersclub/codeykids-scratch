@@ -158,8 +158,12 @@ const WebEditor = () => {
 
   // The page is shown again from the start: blank first, so the old page is
   // gone and the rebuilt document is a change even when nothing else moved.
+  // The epoch moves on at once, so nothing the old page still says (what it
+  // saved, a moment after "Clear saved data") counts for the next run.
   const reload = useCallback(() => {
+    epochRef.current += 1;
     setSrcdoc("");
+    setPreviewSrc("");
     setReloads((i) => i + 1);
   }, []);
 
