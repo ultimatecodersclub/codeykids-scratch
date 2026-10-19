@@ -54,12 +54,22 @@ const typeOf = (path) => TYPES[path.slice(path.lastIndexOf(".") + 1).toLowerCase
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 
+// A path as the kid wrote it. A stray "%" (a file called "100%.html") is
+// left as it is rather than throwing.
+const decode = (text) => {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+};
+
 // The session and path a URL on this host stands for, or null for the
 // host's own files (the bridge, this worker, the prelude).
 const locate = (url) => {
   if (!url.pathname.startsWith(SESSIONS)) return null;
 
-  const rest = decodeURIComponent(url.pathname.slice(SESSIONS.length));
+  const rest = decode(url.pathname.slice(SESSIONS.length));
   const slash = rest.indexOf("/");
 
   if (slash <= 0) return null;
@@ -92,17 +102,9 @@ const sessionOfRequest = async (event, url) => {
   return null;
 };
 
-let preludeText = null;
-
-const prelude = async () => {
-  if (preludeText === null) {
-    const response = await fetch(`${HOST}prelude.js`, { cache: "no-cache" });
-
-    preludeText = await response.text();
-  }
-
-  return preludeText;
-};
+// Asked for afresh each page (the host serves it uncached), so a deploy that
+// changes only the prelude reaches pages already open at their next run.
+const prelude = async () => (await fetch(`${HOST}prelude.js`, { cache: "no-cache" })).text();
 
 // What a server says for a page that isn't there. It has the prelude too, so
 // the editor's address bar shows the address that was asked for.
@@ -237,7 +239,7 @@ self.addEventListener("fetch", (event) => {
 
       if (!session) return fetch(event.request);
 
-      const path = decodeURIComponent(url.pathname.slice(1));
+      const path = decode(url.pathname.slice(1));
 
       if (event.request.mode === "navigate") {
         return Response.redirect(`${self.location.origin}${SESSIONS}${encodeURIComponent(session)}/${encodePath(path)}${url.search}`, 302);

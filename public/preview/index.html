@@ -24,9 +24,10 @@
         const build = new URLSearchParams(location.search).get("build") ?? "";
         const CACHE_PREFIX = "codeykids-preview-";
         const META = "__codeykids__/meta.json";
-        // A preview not run for this long belonged to an editor closed long
-        // ago; another tab's live preview is younger.
-        const STALE_MS = 12 * 60 * 60 * 1000;
+        // A site not run for this long belonged to an editor closed without
+        // saying so (an editor forgets its own site when it closes). Kids'
+        // code shares this origin, so nothing is kept longer than it must be.
+        const STALE_MS = 2 * 60 * 60 * 1000;
 
         const fail = (message) => {
           status.textContent = message;
@@ -67,28 +68,33 @@
           }
         };
 
-        const write = async ({ epoch, files, page, paths, storage }) => {
+        // The meta file goes last: the versions it lists are of files fully
+        // written, so a run cut short by the next one is sent again.
+        const write = async ({ epoch, files, page, storage, versions }) => {
           const cache = await caches.open(CACHE_PREFIX + session);
-          const keep = new Set(paths);
+          // As the cache names them, so "./a.css" and "a.css" are one file.
+          const keep = new Set([...Object.keys(versions), META].map((path) => keyOf(path).url));
 
           // What the editor removed or renamed goes.
           for (const request of await cache.keys()) {
-            const path = decodeURIComponent(new URL(request.url).pathname.slice(new URL(base).pathname.length));
-
-            if (path !== META && !keep.has(path)) await cache.delete(request);
+            if (!keep.has(request.url)) await cache.delete(request);
           }
           for (const [path, file] of Object.entries(files)) {
             await cache.put(keyOf(path), new Response(file.bytes ?? file.text ?? ""));
           }
           await cache.put(
             keyOf(META),
-            new Response(JSON.stringify({ editorOrigin: editor, epoch, savedAt: Date.now(), session, storage })),
+            new Response(JSON.stringify({ editorOrigin: editor, epoch, savedAt: Date.now(), session, storage, versions })),
           );
           location.replace(base + encodePath(page));
         };
 
         window.addEventListener("message", (event) => {
           if (event.source !== window.parent || event.origin !== editor) return;
+          if (event.data?.type === "preview:dispose") {
+            void caches.delete(CACHE_PREFIX + session);
+            return;
+          }
           if (event.data?.type !== "preview:files" || event.data.build !== build) return;
 
           write(event.data).catch((error) => fail(`The preview couldn't start: ${error.message}`));
@@ -98,11 +104,13 @@
           await controlled();
           void forgetStale().catch(() => undefined);
 
+          // The version of each file this session holds, written in full and
+          // still there.
           const cache = await caches.open(CACHE_PREFIX + session);
-          const prefix = new URL(base).pathname;
-          const have = (await cache.keys())
-            .map((request) => decodeURIComponent(new URL(request.url).pathname.slice(prefix.length)))
-            .filter((path) => path !== META);
+          const meta = await cache.match(keyOf(META));
+          const versions = meta ? (await meta.json()).versions ?? {} : {};
+          const present = new Set((await cache.keys()).map((request) => request.url));
+          const have = Object.fromEntries(Object.entries(versions).filter(([path]) => present.has(keyOf(path).url)));
 
           window.parent.postMessage({ build, have, type: "preview:ready" }, editor);
         })().catch((error) => fail(`The preview couldn't start: ${error.message}`));

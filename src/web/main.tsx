@@ -38,6 +38,28 @@ const previewBase = (() => {
   return "";
 })();
 const previewOrigin = previewBase ? new URL(previewBase).origin : "null";
+// How long the preview host has to answer a run before the editor shows the
+// site the old way instead (a browser that blocks it, say).
+const HOST_TIMEOUT_MS = 15_000;
+
+// A version for each file object. An edit replaces only the edited file, so
+// a file keeps its version until it changes. The preview host reports the
+// versions it holds once they are all written; anything else is sent again.
+const versions = new WeakMap<WebFiles[string], number>();
+let lastVersion = 0;
+
+const versionOf = (file: WebFiles[string]) => {
+  let version = versions.get(file);
+
+  if (version === undefined) {
+    lastVersion += 1;
+    version = lastVersion;
+    versions.set(file, version);
+  }
+
+  return version;
+};
+
 const CHANGED_THROTTLE_MS = 1000;
 // A page that saves state on every frame must not push the autosave back for
 // ever: its writes count as one change a minute at most.
@@ -60,6 +82,10 @@ const WebEditor = () => {
   // run, and the address the kid can type into.
   const [previewSrc, setPreviewSrc] = useState("");
   const [address, setAddress] = useState("index.html");
+  // The preview host failed or never answered: the site is shown the old way
+  // until the editor is opened again.
+  const [hostFailed, setHostFailed] = useState(false);
+  const served = previewBase !== "" && !hostFailed;
   // Bumped on every load so the code editor takes the new document even when
   // the active file keeps its name.
   const [generation, setGeneration] = useState(0);
@@ -82,7 +108,10 @@ const WebEditor = () => {
   // The preview host keeps the site's files between runs of this editor's
   // session; only what changed since is sent again.
   const session = useMemo(() => crypto.randomUUID(), []);
-  const sentRef = useRef(new Map<string, WebFiles[string]>());
+  const servedRef = useRef(served);
+  const hostTimer = useRef<number>();
+  // Said in the console once the next run has cleared it.
+  const noticeRef = useRef("");
   // Console output arrives one message per line; lines are batched into one
   // render a frame or so.
   const pendingLines = useRef<ConsoleLine[]>([]);
@@ -92,6 +121,7 @@ const WebEditor = () => {
   filesRef.current = files;
   readOnlyRef.current = readOnly;
   previewPageRef.current = previewPage;
+  servedRef.current = served;
 
   const names = useMemo(() => Object.keys(files).sort(), [files]);
 
@@ -206,31 +236,41 @@ const WebEditor = () => {
   }, []);
 
   // On the preview host, the run's files go to its bridge page once it is
-  // ready: those it hasn't got or that changed since, and the list of all
-  // of them so it can drop the rest.
-  const sendFiles = useCallback((have: string[]) => {
+  // ready: those whose version it doesn't hold, and every file's version so
+  // it can drop the rest and report what it holds next time.
+  const sendFiles = useCallback((have: Record<string, unknown>) => {
     const files = filesRef.current;
-    const held = new Set(have);
     const changedFiles: Record<string, { bytes?: Uint8Array; text?: string }> = {};
+    const fileVersions: Record<string, number> = {};
 
     for (const [path, file] of Object.entries(files)) {
-      if (held.has(path) && sentRef.current.get(path) === file) continue;
+      fileVersions[path] = versionOf(file);
+      if (have[path] === fileVersions[path]) continue;
       changedFiles[path] = file.bytes ? { bytes: file.bytes } : { text: file.text ?? "" };
     }
-    sentRef.current = new Map(Object.entries(files));
     previewRef.current?.contentWindow?.postMessage(
       {
         build: String(epochRef.current),
         epoch: epochRef.current,
         files: changedFiles,
         page: previewPageRef.current,
-        paths: Object.keys(files),
         storage: storageRef.current,
         type: "preview:files",
+        versions: fileVersions,
       },
       previewOrigin,
     );
   }, []);
+
+  // The site is shown the old way from here on, with a word in the console.
+  const giveUpHost = useCallback(
+    (reason: string) => {
+      window.clearTimeout(hostTimer.current);
+      noticeRef.current = `${reason} Showing your site the simple way: links between pages work, some other files may not.`;
+      setHostFailed(true);
+    },
+    [],
+  );
 
   // The prelude in the preview forwards console output and errors and reports
   // what the page saved. Without the preview host it also asks for another
@@ -238,15 +278,17 @@ const WebEditor = () => {
   // host the page goes there itself and reports where it is.
   useEffect(() => {
     const listener = (event: MessageEvent) => {
-      if (event.source !== previewRef.current?.contentWindow || event.origin !== previewOrigin) return;
+      if (event.source !== previewRef.current?.contentWindow) return;
+      if (event.origin !== (servedRef.current ? previewOrigin : "null")) return;
 
       // The preview host's bridge page, which knows the run by its build.
       if (event.data?.type === "preview:ready" || event.data?.type === "preview:failed") {
         if (event.data.build !== String(epochRef.current)) return;
         if (event.data.type === "preview:ready") {
-          sendFiles(Array.isArray(event.data.have) ? event.data.have.map(String) : []);
+          window.clearTimeout(hostTimer.current);
+          sendFiles(event.data.have && typeof event.data.have === "object" ? event.data.have : {});
         } else {
-          pushLine("error", String(event.data.message));
+          giveUpHost(String(event.data.message));
         }
         return;
       }
@@ -286,11 +328,11 @@ const WebEditor = () => {
     window.addEventListener("message", listener);
 
     return () => window.removeEventListener("message", listener);
-  }, [changed, pushLine, reload, sendFiles]);
+  }, [changed, giveUpHost, pushLine, reload, sendFiles]);
 
   // On the preview host the page the preview is on moves with the kid's
   // clicks, which must not start a new run.
-  const runPage = previewBase ? "" : previewPage;
+  const runPage = served ? "" : previewPage;
 
   // The preview follows the files, a moment after the last keystroke; the
   // console starts over with it. On the preview host each run opens the
@@ -300,26 +342,49 @@ const WebEditor = () => {
       epochRef.current += 1;
       pendingLines.current = [];
       setConsoleLines([]);
-      if (previewBase) {
+      if (noticeRef.current) {
+        pushLine("info", noticeRef.current);
+        noticeRef.current = "";
+      }
+      if (served) {
         const editor = encodeURIComponent(window.location.origin);
+        const build = epochRef.current;
 
-        setPreviewSrc(`${previewBase}index.html?build=${epochRef.current}#session=${session}&editor=${editor}`);
+        setPreviewSrc(`${previewBase}index.html?build=${build}#session=${session}&editor=${editor}`);
+        window.clearTimeout(hostTimer.current);
+        hostTimer.current = window.setTimeout(() => {
+          if (epochRef.current === build) giveUpHost("The preview didn't start.");
+        }, HOST_TIMEOUT_MS);
       } else {
         setSrcdoc(buildPreview(files, runPage, storageRef.current, epochRef.current));
       }
     }, PREVIEW_DELAY_MS);
 
     return () => window.clearTimeout(timer);
-  }, [files, runPage, reloads, session]);
+  }, [files, giveUpHost, pushLine, runPage, reloads, served, session]);
 
-  // Another page of the site, picked or typed by the kid.
+  // The preview host forgets this editor's site when the editor goes away,
+  // so the next kid on this computer can't read it there.
+  useEffect(() => {
+    const forget = () => previewRef.current?.contentWindow?.postMessage({ type: "preview:dispose" }, previewOrigin);
+
+    window.addEventListener("pagehide", forget);
+
+    return () => {
+      window.removeEventListener("pagehide", forget);
+      window.clearTimeout(hostTimer.current);
+    };
+  }, []);
+
+  // Another page of the site, picked or typed by the kid. Like a server, the
+  // site has no page for a ?query or #part, so those are left off.
   const openPage = (page: string) => {
-    const path = page.trim().replace(/^\/+/, "") || "index.html";
+    const path = page.trim().split(/[?#]/)[0].replace(/^\/+/, "") || "index.html";
 
     previewPageRef.current = path;
     setPreviewPage(path);
     setAddress(path);
-    if (previewBase) reload();
+    if (served) reload();
   };
 
   useEffect(() => () => window.clearTimeout(flushTimer.current), []);
@@ -346,7 +411,7 @@ const WebEditor = () => {
 
     pushLine("input", code);
     // A srcdoc page has no origin to name.
-    previewRef.current?.contentWindow?.postMessage({ code, type: "preview:eval" }, previewBase ? previewOrigin : "*");
+    previewRef.current?.contentWindow?.postMessage({ code, type: "preview:eval" }, served ? previewOrigin : "*");
     setCommand("");
   };
 
@@ -456,7 +521,7 @@ const WebEditor = () => {
       <section className="preview">
         <div className="preview-header">
           <span>Preview</span>
-          {previewBase ? (
+          {served ? (
             // The page's address in the site, as a browser's address bar
             // shows it; a typed address that isn't there shows "Page not
             // found", as a server would.
@@ -489,7 +554,7 @@ const WebEditor = () => {
             </select>
           )}
         </div>
-        {previewBase ? (
+        {served ? (
           // On the preview host's own origin, never the editor's or
           // CodeyKids', so the page can have one (same-origin) without
           // reaching either; it cannot navigate the lesson away.

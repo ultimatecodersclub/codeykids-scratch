@@ -37,6 +37,18 @@
   }
 
   const KEY = `codeykids:${SESSION}:${EPOCH}:`;
+
+  // Only this run's copies are kept: earlier runs' would fill the 5 MB
+  // sessionStorage has.
+  try {
+    for (let i = real ? real.length - 1 : -1; i >= 0; i -= 1) {
+      const name = real.key(i);
+
+      if (name && name.startsWith("codeykids:") && !name.startsWith(KEY)) real.removeItem(name);
+    }
+  } catch (error) {
+    // Blocked: nothing to tidy.
+  }
   const carried = (name) => {
     try {
       const text = real && real.getItem(KEY + name);
@@ -148,7 +160,14 @@
   }, true);
   window.addEventListener("unhandledrejection", (event) => send("error", [`Uncaught (in promise) ${show(event.reason)}`]));
   window.addEventListener("message", (event) => {
-    if (event.source !== window.parent || event.origin !== EDITOR || !event.data || event.data.type !== "preview:eval") return;
+    if (event.source !== window.parent || event.origin !== EDITOR || !event.data) return;
+    // The editor is closing: the site's files and saved data leave this
+    // host, so the next kid on this computer can't read them here.
+    if (event.data.type === "preview:dispose") {
+      if (window.caches) void caches.delete(`codeykids-preview-${SESSION}`);
+      return;
+    }
+    if (event.data.type !== "preview:eval") return;
     try {
       send("result", [(0, eval)(event.data.code)]);
     } catch (error) {
@@ -177,7 +196,11 @@
 
     if (href.startsWith("#") || href.startsWith("data:") || href.startsWith("blob:") || href.startsWith("javascript:")) return;
     if (ownURL(link.href)) {
-      if (link.target && link.target !== "_self") {
+      // A link into a frame of the page (<iframe name="…">) stays the
+      // browser's.
+      const target = link.target;
+
+      if (target && target !== "_self" && !(target.charAt(0) !== "_" && document.getElementsByName(target).length > 0)) {
         event.preventDefault();
         location.assign(link.href);
       }

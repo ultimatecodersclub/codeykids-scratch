@@ -107,14 +107,26 @@ work, and a page that isn't there gets "Page not found".
   localStorage per project (the editor saves it with the site) and reports
   the page's address for the editor's address bar.
 
-The host must allow only the editor to frame it
-(`Content-Security-Policy: frame-ancestors <studio origin>`), and serve
-`sw.js` and `index.html` uncached.
+The host must allow only the editor to frame it, and serve all three files
+uncached. `frame-ancestors` is checked against every page above the frame, so
+it lists the studio and every app that frames the studio (CodeyKids and the
+portal), for example
+`Content-Security-Policy: frame-ancestors https://studio.codeykids.com https://www.codeykids.com https://code.ultimatecoders.com`.
+
+Kids' code runs on this origin, so the host keeps as little as it can: an
+editor forgets its site when it closes, and a site not run for two hours is
+dropped by the next run of any other.
+
+If the host fails or doesn't answer a run within 15 seconds (a browser that
+blocks it, say), the editor shows the site the old way for the rest of the
+session and says so in its console.
 
 Without `VITE_PREVIEW_URL` the site is built into one page instead
 (`buildPreview`, a sandboxed `srcdoc` frame). In development (`npm run dev`)
 the editor at `localhost` uses `127.0.0.1` as its preview host (the dev
-server listens there and allows the service worker the whole origin).
+server listens there and allows the service worker the whole origin). Open
+the editors at `localhost`: `127.0.0.1` belongs to the preview, and the
+Python editor's own service worker would take its place there.
 
 ## The Scratch menubar
 
