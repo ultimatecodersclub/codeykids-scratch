@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Preview</title>
+    <style>
+      body { margin: 0; font: 14px system-ui, sans-serif; color: #64748b; display: grid; place-items: center; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <p id="status">Getting the preview ready…</p>
+    <script>
+      // The web editor's preview host. The editor opens this page in its
+      // preview frame for every run of the site
+      // (index.html?build=N#session=…&editor=…), sends the site's files here,
+      // and this page puts them where sw.js serves them, at
+      // p/<session>/<path>, then opens the page asked for. Nothing here
+      // runs a kid's code.
+      (() => {
+        const status = document.getElementById("status");
+        const params = new URLSearchParams(location.hash.slice(1));
+        const session = params.get("session") ?? "";
+        const editor = params.get("editor") ?? "";
+        const build = new URLSearchParams(location.search).get("build") ?? "";
+        const CACHE_PREFIX = "codeykids-preview-";
+        const META = "__codeykids__/meta.json";
+        // A preview not run for this long belonged to an editor closed long
+        // ago; another tab's live preview is younger.
+        const STALE_MS = 12 * 60 * 60 * 1000;
+
+        const fail = (message) => {
+          status.textContent = message;
+          if (window.parent !== window && editor) {
+            window.parent.postMessage({ build, message, type: "preview:failed" }, editor);
+          }
+        };
+
+        if (!/^[A-Za-z0-9-]{8,64}$/.test(session) || !/^https?:\/\/[^/]+$/.test(editor) || window.parent === window) {
+          status.textContent = "This page only works inside the CodeyKids web editor.";
+          return;
+        }
+        if (!("serviceWorker" in navigator) || !("caches" in window)) {
+          fail("This browser can't show the preview. Try Chrome or Edge.");
+          return;
+        }
+
+        const encodePath = (path) => path.split("/").map(encodeURIComponent).join("/");
+        const base = `${location.origin}/p/${encodeURIComponent(session)}/`;
+        const keyOf = (path) => new Request(base + encodePath(path));
+
+        const controlled = async () => {
+          // The whole origin: sites live at /p/<session>/ (in development the
+          // dev server allows it with a Service-Worker-Allowed header).
+          await navigator.serviceWorker.register("sw.js", { scope: "/" });
+          if (navigator.serviceWorker.controller) return;
+          await new Promise((resolve) => navigator.serviceWorker.addEventListener("controllerchange", resolve, { once: true }));
+        };
+
+        const forgetStale = async () => {
+          for (const name of await caches.keys()) {
+            if (!name.startsWith(CACHE_PREFIX) || name === CACHE_PREFIX + session) continue;
+
+            const meta = await (await caches.open(name)).match(new Request(`${location.origin}/p/${encodeURIComponent(name.slice(CACHE_PREFIX.length))}/${META}`));
+            const savedAt = meta ? (await meta.json()).savedAt ?? 0 : 0;
+
+            if (Date.now() - savedAt > STALE_MS) await caches.delete(name);
+          }
+        };
+
+        const write = async ({ epoch, files, page, paths, storage }) => {
+          const cache = await caches.open(CACHE_PREFIX + session);
+          const keep = new Set(paths);
+
+          // What the editor removed or renamed goes.
+          for (const request of await cache.keys()) {
+            const path = decodeURIComponent(new URL(request.url).pathname.slice(new URL(base).pathname.length));
+
+            if (path !== META && !keep.has(path)) await cache.delete(request);
+          }
+          for (const [path, file] of Object.entries(files)) {
+            await cache.put(keyOf(path), new Response(file.bytes ?? file.text ?? ""));
+          }
+          await cache.put(
+            keyOf(META),
+            new Response(JSON.stringify({ editorOrigin: editor, epoch, savedAt: Date.now(), session, storage })),
+          );
+          location.replace(base + encodePath(page));
+        };
+
+        window.addEventListener("message", (event) => {
+          if (event.source !== window.parent || event.origin !== editor) return;
+          if (event.data?.type !== "preview:files" || event.data.build !== build) return;
+
+          write(event.data).catch((error) => fail(`The preview couldn't start: ${error.message}`));
+        });
+
+        (async () => {
+          await controlled();
+          void forgetStale().catch(() => undefined);
+
+          const cache = await caches.open(CACHE_PREFIX + session);
+          const prefix = new URL(base).pathname;
+          const have = (await cache.keys())
+            .map((request) => decodeURIComponent(new URL(request.url).pathname.slice(prefix.length)))
+            .filter((path) => path !== META);
+
+          window.parent.postMessage({ build, have, type: "preview:ready" }, editor);
+        })().catch((error) => fail(`The preview couldn't start: ${error.message}`));
+      })();
+    </script>
+  </body>
+</html>

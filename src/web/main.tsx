@@ -20,6 +20,24 @@ import "./web.css";
 
 const SIZE_LIMIT = 20 * 1024 * 1024;
 const PREVIEW_DELAY_MS = 400;
+
+// The preview host (public/preview): the site runs there at real addresses,
+// on an origin of its own, so its folders, links, images in CSS, fetch() of
+// its files and module imports work as on a web server. Without one the site
+// is shown as a single built page (buildPreview), as before.
+const previewBase = (() => {
+  const configured = import.meta.env.VITE_PREVIEW_URL;
+
+  if (configured) return new URL(configured.endsWith("/") ? configured : `${configured}/`, window.location.href).href;
+  // In development the editor runs on localhost, and 127.0.0.1 is another
+  // origin serving the same files.
+  if (import.meta.env.DEV && window.location.hostname === "localhost") {
+    return `${window.location.protocol}//127.0.0.1:${window.location.port}/preview/`;
+  }
+
+  return "";
+})();
+const previewOrigin = previewBase ? new URL(previewBase).origin : "null";
 const CHANGED_THROTTLE_MS = 1000;
 // A page that saves state on every frame must not push the autosave back for
 // ever: its writes count as one change a minute at most.
@@ -28,12 +46,20 @@ const CONSOLE_CAP = 500;
 
 type ConsoleLine = { id: number; level: string; text: string };
 
+// The page a site opens on: index.html, else its first page.
+const entryPage = (files: WebFiles) =>
+  files["index.html"] ? "index.html" : (Object.keys(files).find(isHtml) ?? "index.html");
+
 const WebEditor = () => {
   const [files, setFiles] = useState<WebFiles>(() => structuredClone(STARTER_FILES));
   const [active, setActive] = useState("index.html");
   const [readOnly, setReadOnly] = useState(false);
   const [previewPage, setPreviewPage] = useState("index.html");
   const [srcdoc, setSrcdoc] = useState("");
+  // On the preview host: the page the preview frame opens for the current
+  // run, and the address the kid can type into.
+  const [previewSrc, setPreviewSrc] = useState("");
+  const [address, setAddress] = useState("index.html");
   // Bumped on every load so the code editor takes the new document even when
   // the active file keeps its name.
   const [generation, setGeneration] = useState(0);
@@ -53,6 +79,10 @@ const WebEditor = () => {
   const lastStorageChangedAt = useRef(0);
   const previewRef = useRef<HTMLIFrameElement>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
+  // The preview host keeps the site's files between runs of this editor's
+  // session; only what changed since is sent again.
+  const session = useMemo(() => crypto.randomUUID(), []);
+  const sentRef = useRef(new Map<string, WebFiles[string]>());
   // Console output arrives one message per line; lines are batched into one
   // render a frame or so.
   const pendingLines = useRef<ConsoleLine[]>([]);
@@ -118,10 +148,16 @@ const WebEditor = () => {
             // The old page goes away before the new project is in, so
             // nothing it still does lands on the new one.
             setSrcdoc("");
+            setPreviewSrc("");
             storageRef.current = project.storage;
             setFiles(next);
             setActive(next["index.html"] ? "index.html" : Object.keys(next)[0]);
-            setPreviewPage(next["index.html"] ? "index.html" : (Object.keys(next).find(isHtml) ?? "index.html"));
+
+            const entry = entryPage(next);
+
+            previewPageRef.current = entry;
+            setPreviewPage(entry);
+            setAddress(entry);
             if (message.readOnly !== undefined) setReadOnly(message.readOnly);
             setGeneration((i) => i + 1);
             postToPage({ type: "loaded" });
@@ -151,7 +187,7 @@ const WebEditor = () => {
         case "snapshot":
           void answerSnapshot(message.requestId, async () => {
             const files = filesRef.current;
-            const page = files["index.html"] ? "index.html" : (Object.keys(files).find(isHtml) ?? "index.html");
+            const page = entryPage(files);
 
             try {
               return await pictureOfPage(buildPreview(files, page));
@@ -169,15 +205,61 @@ const WebEditor = () => {
     });
   }, []);
 
-  // The prelude in the preview asks for another page of the site when a link
-  // to it is clicked or a form is sent, forwards console output and errors,
-  // and reports what the page saved.
+  // On the preview host, the run's files go to its bridge page once it is
+  // ready: those it hasn't got or that changed since, and the list of all
+  // of them so it can drop the rest.
+  const sendFiles = useCallback((have: string[]) => {
+    const files = filesRef.current;
+    const held = new Set(have);
+    const changedFiles: Record<string, { bytes?: Uint8Array; text?: string }> = {};
+
+    for (const [path, file] of Object.entries(files)) {
+      if (held.has(path) && sentRef.current.get(path) === file) continue;
+      changedFiles[path] = file.bytes ? { bytes: file.bytes } : { text: file.text ?? "" };
+    }
+    sentRef.current = new Map(Object.entries(files));
+    previewRef.current?.contentWindow?.postMessage(
+      {
+        build: String(epochRef.current),
+        epoch: epochRef.current,
+        files: changedFiles,
+        page: previewPageRef.current,
+        paths: Object.keys(files),
+        storage: storageRef.current,
+        type: "preview:files",
+      },
+      previewOrigin,
+    );
+  }, []);
+
+  // The prelude in the preview forwards console output and errors and reports
+  // what the page saved. Without the preview host it also asks for another
+  // page of the site when a link to it is clicked or a form is sent; on the
+  // host the page goes there itself and reports where it is.
   useEffect(() => {
     const listener = (event: MessageEvent) => {
-      if (event.source !== previewRef.current?.contentWindow) return;
+      if (event.source !== previewRef.current?.contentWindow || event.origin !== previewOrigin) return;
+
+      // The preview host's bridge page, which knows the run by its build.
+      if (event.data?.type === "preview:ready" || event.data?.type === "preview:failed") {
+        if (event.data.build !== String(epochRef.current)) return;
+        if (event.data.type === "preview:ready") {
+          sendFiles(Array.isArray(event.data.have) ? event.data.have.map(String) : []);
+        } else {
+          pushLine("error", String(event.data.message));
+        }
+        return;
+      }
+
       if (event.data?.epoch !== epochRef.current) return;
 
-      if (event.data.type === "preview:navigate") {
+      if (event.data.type === "preview:location") {
+        const page = String(event.data.page);
+
+        previewPageRef.current = page;
+        setPreviewPage(page);
+        setAddress(page);
+      } else if (event.data.type === "preview:navigate") {
         const page = String(event.data.page);
 
         if (!isHtml(page) || !filesRef.current[page]) return;
@@ -204,20 +286,41 @@ const WebEditor = () => {
     window.addEventListener("message", listener);
 
     return () => window.removeEventListener("message", listener);
-  }, [changed, pushLine, reload]);
+  }, [changed, pushLine, reload, sendFiles]);
+
+  // On the preview host the page the preview is on moves with the kid's
+  // clicks, which must not start a new run.
+  const runPage = previewBase ? "" : previewPage;
 
   // The preview follows the files, a moment after the last keystroke; the
-  // console starts over with it.
+  // console starts over with it. On the preview host each run opens the
+  // bridge page afresh, which then opens the page the kid was on.
   useEffect(() => {
     const timer = window.setTimeout(() => {
       epochRef.current += 1;
       pendingLines.current = [];
       setConsoleLines([]);
-      setSrcdoc(buildPreview(files, previewPage, storageRef.current, epochRef.current));
+      if (previewBase) {
+        const editor = encodeURIComponent(window.location.origin);
+
+        setPreviewSrc(`${previewBase}index.html?build=${epochRef.current}#session=${session}&editor=${editor}`);
+      } else {
+        setSrcdoc(buildPreview(files, runPage, storageRef.current, epochRef.current));
+      }
     }, PREVIEW_DELAY_MS);
 
     return () => window.clearTimeout(timer);
-  }, [files, previewPage, reloads]);
+  }, [files, runPage, reloads, session]);
+
+  // Another page of the site, picked or typed by the kid.
+  const openPage = (page: string) => {
+    const path = page.trim().replace(/^\/+/, "") || "index.html";
+
+    previewPageRef.current = path;
+    setPreviewPage(path);
+    setAddress(path);
+    if (previewBase) reload();
+  };
 
   useEffect(() => () => window.clearTimeout(flushTimer.current), []);
 
@@ -242,7 +345,8 @@ const WebEditor = () => {
     if (!code) return;
 
     pushLine("input", code);
-    previewRef.current?.contentWindow?.postMessage({ code, type: "preview:eval" }, "*");
+    // A srcdoc page has no origin to name.
+    previewRef.current?.contentWindow?.postMessage({ code, type: "preview:eval" }, previewBase ? previewOrigin : "*");
     setCommand("");
   };
 
@@ -286,6 +390,14 @@ const WebEditor = () => {
 
     update(rest);
     if (active === name) setActive(Object.keys(rest)[0] ?? "");
+    // The preview leaves a page that is gone for the site's first page.
+    if (previewPageRef.current === name) {
+      const entry = entryPage(rest);
+
+      previewPageRef.current = entry;
+      setPreviewPage(entry);
+      setAddress(entry);
+    }
   };
 
   const activeFile = files[active];
@@ -344,20 +456,60 @@ const WebEditor = () => {
       <section className="preview">
         <div className="preview-header">
           <span>Preview</span>
-          <select onChange={(e) => setPreviewPage(e.target.value)} value={previewPage}>
-            {names.filter(isHtml).map((name) => (
-              <option key={name} value={name}>{name}</option>
-            ))}
-          </select>
+          {previewBase ? (
+            // The page's address in the site, as a browser's address bar
+            // shows it; a typed address that isn't there shows "Page not
+            // found", as a server would.
+            <form
+              className="address"
+              onSubmit={(e) => {
+                e.preventDefault();
+                openPage(address);
+              }}
+            >
+              <span>/</span>
+              <input
+                aria-label="Page address"
+                list="site-pages"
+                onChange={(e) => setAddress(e.target.value)}
+                spellCheck={false}
+                value={address}
+              />
+              <datalist id="site-pages">
+                {names.filter(isHtml).map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
+            </form>
+          ) : (
+            <select onChange={(e) => openPage(e.target.value)} value={previewPage}>
+              {names.filter(isHtml).map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+          )}
         </div>
-        {/* Forms, downloads and new tabs are the kid's page's to use; without
-            allow-same-origin the page stays walled off from the editor. */}
-        <iframe
-          ref={previewRef}
-          sandbox="allow-scripts allow-modals allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox"
-          srcDoc={srcdoc}
-          title="Preview"
-        />
+        {previewBase ? (
+          // On the preview host's own origin, never the editor's or
+          // CodeyKids', so the page can have one (same-origin) without
+          // reaching either; it cannot navigate the lesson away.
+          <iframe
+            ref={previewRef}
+            sandbox="allow-scripts allow-same-origin allow-modals allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox"
+            src={previewSrc || "about:blank"}
+            title="Preview"
+          />
+        ) : (
+          // Forms, downloads and new tabs are the kid's page's to use;
+          // without allow-same-origin the page stays walled off from the
+          // editor.
+          <iframe
+            ref={previewRef}
+            sandbox="allow-scripts allow-modals allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox"
+            srcDoc={srcdoc}
+            title="Preview"
+          />
+        )}
         <div className="console-pane">
           <div className="console-header">
             <span>Console</span>
