@@ -26,5 +26,9 @@ export default defineConfig({
       output: { chunkFileNames: "python/[name]-[hash].js", entryFileNames: "python/[name]-[hash].js" },
     },
   },
-  server: { port: 8601 },
+  // 127.0.0.1, which localhost also reaches: the web editor's preview runs on
+  // 127.0.0.1 in development, an origin apart from the editor's localhost.
+  // The preview's service worker (public/preview/sw.js) serves the whole
+  // 127.0.0.1 origin, as it does the preview host's in production.
+  server: { headers: { "Service-Worker-Allowed": "/" }, host: "127.0.0.1", port: 8601 },
 });

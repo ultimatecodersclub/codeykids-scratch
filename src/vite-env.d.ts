@@ -6,3 +6,9 @@ declare module "scratch-l10n" {
   const locales: Record<string, { name: string }>;
   export default locales;
 }
+
+interface ImportMetaEnv {
+  // Where the web editor's preview host serves kids' sites (public/preview),
+  // on an origin of its own. Unset: the site is shown as one built page.
+  readonly VITE_PREVIEW_URL?: string;
+}

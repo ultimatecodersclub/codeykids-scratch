@@ -84,6 +84,50 @@ Messages the editor sends to the lesson page:
 Set `VITE_ALLOWED_ORIGINS` to the comma-separated origins allowed to drive the
 editor (see `.env.example`). `*` is for local development only.
 
+## The web editor's preview host
+
+The web editor shows a kid's site in a frame on a host of its own, a
+different origin from CodeyKids and the editor (`VITE_PREVIEW_URL`, for
+example `https://preview.codeykids.com/`). There the site runs at real
+addresses, as a web server would serve it: folders, `../` links, images in
+CSS, fonts, audio, `fetch()` of the site's own files and module imports all
+work, and a page that isn't there gets "Page not found".
+
+`public/preview/` is the whole host and is served at its root:
+
+- `index.html`, the bridge. The editor opens it in the preview frame for every
+  run (`index.html?build=N#session=…&editor=…`) and sends it the site's files
+  (only those that changed since the last run). It writes them to Cache
+  Storage and opens the page the kid was on.
+- `sw.js`, a service worker over the whole origin. It serves each editor's
+  site from `/p/<session>/`, a root-relative address (`/style.css`) from the
+  site that asked, and puts `prelude.js` first in every page.
+- `prelude.js`, which gives the editor its console (output, errors with the
+  kid's own line numbers, a line typed there runs in the page), keeps
+  localStorage per project (the editor saves it with the site) and reports
+  the page's address for the editor's address bar.
+
+The host must allow only the editor to frame it, and serve all three files
+uncached. `frame-ancestors` is checked against every page above the frame, so
+it lists the studio and every app that frames the studio (CodeyKids and the
+portal), for example
+`Content-Security-Policy: frame-ancestors https://studio.codeykids.com https://www.codeykids.com https://code.ultimatecoders.com`.
+
+Kids' code runs on this origin, so the host keeps as little as it can: an
+editor forgets its site when it closes, and a site not run for two hours is
+dropped by the next run of any other.
+
+If the host fails or doesn't answer a run within 15 seconds (a browser that
+blocks it, say), the editor shows the site the old way for the rest of the
+session and says so in its console.
+
+Without `VITE_PREVIEW_URL` the site is built into one page instead
+(`buildPreview`, a sandboxed `srcdoc` frame). In development (`npm run dev`)
+the editor at `localhost` uses `127.0.0.1` as its preview host (the dev
+server listens there and allows the service worker the whole origin). Open
+the editors at `localhost`: `127.0.0.1` belongs to the preview, and the
+Python editor's own service worker would take its place there.
+
 ## The Scratch menubar
 
 The GUI's menubar is hidden (`menuBarHidden`), so the 48px it took go to the

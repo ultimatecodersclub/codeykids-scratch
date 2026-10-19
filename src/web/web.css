@@ -27,6 +27,9 @@ button { font: inherit; cursor: pointer; }
 .preview { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #fff; }
 .preview iframe { flex: 1; border: 0; width: 100%; background: #fff; }
 .preview select { font: inherit; }
+.preview .address { display: flex; align-items: center; flex: 1; min-width: 0; margin-left: 10px; padding: 2px 8px; border: 1px solid #cbd5e1; border-radius: 999px; background: #fff; font-weight: 400; color: #64748b; }
+.preview .address input { flex: 1; min-width: 0; border: 0; outline: none; font: 13px ui-monospace, monospace; color: #0f172a; background: transparent; }
+.preview .address:focus-within { border-color: #4eaeda; }
 
 .console-pane { display: flex; flex-direction: column; height: 30%; min-height: 120px; border-top: 1px solid #cbd5e1; background: #0f172a; color: #e2e8f0; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 .console-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 10px; background: #1e293b; color: #cbd5e1; font: 600 12px system-ui, sans-serif; }
