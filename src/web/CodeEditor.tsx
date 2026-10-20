@@ -90,7 +90,9 @@ export const CodeEditor = ({ files, name, onChange, readOnly, value }: Props) =>
         selection: { anchor: Math.min(Math.max(cursorOffset, 0), formatted.length) },
       });
     } catch (error) {
-      if (viewRef.current === view) setNotice(formatProblem(error));
+      // Only about the code as it was asked: not once the kid typed on or
+      // opened another file.
+      if (viewRef.current === view && view.state.doc === doc) setNotice(formatProblem(error));
     }
   };
 
