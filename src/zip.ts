@@ -23,12 +23,17 @@ const stripTopFolder = (paths: string[]) => {
   return (path: string) => (top ? path.slice(top.length) : path);
 };
 
+// `stripTop` is for a whole project; files added to one keep their folders.
 export const unpackZip = (
   bytes: Uint8Array,
-  { isText, keep = () => true }: { isText: (name: string) => boolean; keep?: (name: string) => boolean },
+  {
+    isText,
+    keep = () => true,
+    stripTop = true,
+  }: { isText: (name: string) => boolean; keep?: (name: string) => boolean; stripTop?: boolean },
 ): ProjectFiles => {
   const entries = Object.entries(unzipSync(bytes)).filter(([path]) => !isNoise(path));
-  const strip = stripTopFolder(entries.map(([path]) => path));
+  const strip = stripTop ? stripTopFolder(entries.map(([path]) => path)) : (path: string) => path;
   const files: ProjectFiles = {};
 
   for (const [path, data] of entries) {
