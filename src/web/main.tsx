@@ -196,6 +196,9 @@ const WebEditor = () => {
             // nothing it still does lands on the new one.
             setSrcdoc("");
             setPreviewSrc("");
+            // A report the old project's run had waiting is not this one's.
+            window.clearTimeout(storageTimer.current);
+            storageTimer.current = undefined;
             storageRef.current = project.storage;
             setFiles(next);
             setActive(next["index.html"] ? "index.html" : Object.keys(next)[0]);
@@ -340,7 +343,7 @@ const WebEditor = () => {
 
         storageTimer.current = window.setTimeout(() => {
           storageTimer.current = undefined;
-          postToPage({ byRun: true, type: "changed" });
+          if (!readOnlyRef.current) postToPage({ byRun: true, type: "changed" });
         }, STORAGE_REPORT_MS);
       }
     };
