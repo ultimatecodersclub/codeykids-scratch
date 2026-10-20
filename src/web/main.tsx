@@ -880,7 +880,11 @@ const WebEditor = () => {
               // On the preview host's own origin, never the editor's or
               // CodeyKids', so the page can have one (same-origin) without
               // reaching either; it cannot navigate the lesson away.
+              // Camera, microphone and full screen pass on to the kid's page
+              // (CodeyKids passes them to this editor): a site asks, and the
+              // browser asks the kid once.
               <iframe
+                allow="camera; microphone; fullscreen"
                 ref={previewRef}
                 sandbox="allow-scripts allow-same-origin allow-modals allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox"
                 src={previewSrc || "about:blank"}
@@ -891,7 +895,10 @@ const WebEditor = () => {
               // Forms, downloads and new tabs are the kid's page's to use;
               // without allow-same-origin the page stays walled off from the
               // editor.
+              // A srcdoc page has no origin to name, hence "*": it is the
+              // only page this frame ever shows.
               <iframe
+                allow="camera *; microphone *; fullscreen *"
                 ref={previewRef}
                 sandbox="allow-scripts allow-modals allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox"
                 srcDoc={srcdoc}
