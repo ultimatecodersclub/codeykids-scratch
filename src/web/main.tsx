@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { answerSnapshot, listenToPage, postToPage } from "../bridge";
 import { codeCard, pictureOfPage } from "../snapshot";
 import { CodeEditor } from "./CodeEditor";
+import { Divider, useSplit } from "./Divider";
 import {
   buildPreview,
   bytesOf,
@@ -40,6 +41,7 @@ const WebEditor = () => {
   const [reloads, setReloads] = useState(0);
   const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([]);
   const [command, setCommand] = useState("");
+  const split = useSplit();
 
   const filesRef = useRef(files);
   const readOnlyRef = useRef(readOnly);
@@ -291,7 +293,7 @@ const WebEditor = () => {
   const activeFile = files[active];
 
   return (
-    <div className="layout">
+    <div className="layout" style={split.style}>
       <aside className="files">
         <div className="files-header">
           <span>Files</span>
@@ -341,6 +343,8 @@ const WebEditor = () => {
           <div className="binary">No file selected.</div>
         )}
       </main>
+
+      <Divider split={split} />
 
       <section className="preview">
         <div className="preview-header">
