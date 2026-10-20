@@ -2,13 +2,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { answerSnapshot, listenToPage, postToPage } from "../bridge";
+import { useImageUrl } from "../python/useImageUrl";
 import { codeCard, pictureOfPage } from "../snapshot";
+import { unpackZip } from "../zip";
 import { CodeEditor } from "./CodeEditor";
+import { FileTree } from "./FileTree";
 import {
+  asSiteFile,
   buildPreview,
   bytesOf,
+  folderOf,
   fromZip,
+  imageType,
+  inFolder,
   isHtml,
+  isSitePath,
   isText,
   STARTER_FILES,
   Storage,
@@ -75,6 +83,10 @@ const entryPage = (files: WebFiles) =>
 const WebEditor = () => {
   const [files, setFiles] = useState<WebFiles>(() => structuredClone(STARTER_FILES));
   const [active, setActive] = useState("index.html");
+  // The folder new and uploaded files go into ("" is the top of the site),
+  // and folders the kid made that have nothing in them yet (not saved).
+  const [folder, setFolder] = useState("");
+  const [emptyFolders, setEmptyFolders] = useState<string[]>([]);
   const [readOnly, setReadOnly] = useState(false);
   const [previewPage, setPreviewPage] = useState("index.html");
   const [srcdoc, setSrcdoc] = useState("");
@@ -111,7 +123,7 @@ const WebEditor = () => {
   const servedRef = useRef(served);
   const hostTimer = useRef<number>();
   // Said in the console once the next run has cleared it.
-  const noticeRef = useRef("");
+  const noticesRef = useRef<{ level: string; text: string }[]>([]);
   // Console output arrives one message per line; lines are batched into one
   // render a frame or so.
   const pendingLines = useRef<ConsoleLine[]>([]);
@@ -270,7 +282,10 @@ const WebEditor = () => {
   const giveUpHost = useCallback(
     (reason: string) => {
       window.clearTimeout(hostTimer.current);
-      noticeRef.current = `${reason} Showing your site the simple way: links between pages work, some other files may not.`;
+      noticesRef.current.push({
+        level: "info",
+        text: `${reason} Showing your site the simple way: links between pages work, some other files may not.`,
+      });
       setHostFailed(true);
     },
     [],
@@ -346,10 +361,8 @@ const WebEditor = () => {
       epochRef.current += 1;
       pendingLines.current = [];
       setConsoleLines([]);
-      if (noticeRef.current) {
-        pushLine("info", noticeRef.current);
-        noticeRef.current = "";
-      }
+      for (const notice of noticesRef.current) pushLine(notice.level, notice.text);
+      noticesRef.current = [];
       if (served) {
         const editor = encodeURIComponent(window.location.origin);
         const build = epochRef.current;
@@ -419,88 +432,278 @@ const WebEditor = () => {
     setCommand("");
   };
 
-  const addFile = () => {
-    const name = window.prompt("File name, for example about.html or style.css")?.trim();
+  const tooBig = (next: WebFiles) => {
+    if (bytesOf(next) + storageBytes(storageRef.current) <= SIZE_LIMIT) return false;
 
-    if (!name || files[name]) return;
-
-    update({ ...files, [name]: isText(name) ? { text: "" } : { bytes: new Uint8Array() } });
-    setActive(name);
+    window.alert("That would make your site bigger than 20 MB, the most a site can be.");
+    return true;
   };
 
-  const addImage = async (list: FileList | null) => {
-    if (!list?.length) return;
+  const badName = (name: string) => {
+    if (isSitePath(name)) return false;
 
-    const next = { ...files };
+    window.alert(
+      `"${name}" can't be a file name in a website. Use letters, numbers, - and _, with / between folders (for example images/cat.png).`,
+    );
+    return true;
+  };
 
-    for (const file of Array.from(list)) {
-      next[file.name] = { bytes: new Uint8Array(await file.arrayBuffer()) };
+  // Whatever the files of a site now are, the preview leaves a page that is
+  // gone for the site's first page.
+  const leaveGonePage = (next: WebFiles) => {
+    if (next[previewPageRef.current]) return;
+
+    const entry = entryPage(next);
+
+    previewPageRef.current = entry;
+    setPreviewPage(entry);
+    setAddress(entry);
+  };
+
+  const addFile = () => {
+    const name = window.prompt(
+      `New file${folder ? ` in ${folder}` : ""}, for example about.html, style.css or script.js`,
+    )?.trim();
+
+    if (!name) return;
+
+    const path = inFolder(folder, name);
+
+    if (badName(path)) return;
+    if (files[path]) {
+      window.alert(`There is already a file called ${path}.`);
+      return;
     }
+    if (!isText(path)) {
+      window.alert("Pictures, sounds and other files come from your computer: use ⇪ to add one.");
+      return;
+    }
+
+    update({ ...files, [path]: { text: "" } });
+    setActive(path);
+  };
+
+  const addFolder = () => {
+    const name = window.prompt(`New folder${folder ? ` in ${folder}` : ""}, for example images`)?.trim().replace(/\/+$/, "");
+
+    if (!name) return;
+
+    const path = inFolder(folder, name);
+
+    if (badName(path)) return;
+    if (emptyFolders.includes(path) || Object.keys(files).some((file) => file.startsWith(`${path}/`))) {
+      window.alert(`There is already a folder called ${path}.`);
+      return;
+    }
+
+    setEmptyFolders([...emptyFolders, path]);
+    setFolder(path);
+  };
+
+  // Files from the kid's computer go into the folder picked. A .zip can be
+  // unpacked there instead (a lesson's pictures, a model exported from
+  // Teachable Machine).
+  const addFromComputer = async (picked: FileList | null) => {
+    if (!picked?.length) return;
+
+    const next = { ...filesRef.current };
+
+    for (const file of [...picked]) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+
+      if (/\.zip$/i.test(file.name) && window.confirm(`Unpack ${file.name} into ${folder || "your site"}? (Cancel adds the .zip itself.)`)) {
+        let unpacked: WebFiles;
+
+        try {
+          unpacked = unpackZip(bytes, { isText, keep: (name) => isSitePath(inFolder(folder, name)) });
+        } catch {
+          window.alert(`${file.name} isn't a zip that can be opened.`);
+          continue;
+        }
+
+        const paths = Object.keys(unpacked).map((name) => inFolder(folder, name));
+        const clashes = paths.filter((path) => next[path]);
+
+        if (clashes.length > 0 && !window.confirm(`Replace ${clashes.length === 1 ? clashes[0] : `${clashes.length} files already there`}?`)) {
+          continue;
+        }
+        for (const [name, unpackedFile] of Object.entries(unpacked)) next[inFolder(folder, name)] = unpackedFile;
+        continue;
+      }
+
+      const path = inFolder(folder, file.name);
+
+      if (badName(path)) continue;
+      if (next[path] && !window.confirm(`Replace ${path}?`)) continue;
+
+      next[path] = asSiteFile(path, bytes);
+    }
+
+    if (tooBig(next)) return;
 
     update(next);
+    setEmptyFolders(emptyFolders.filter((empty) => !Object.keys(next).some((path) => path.startsWith(`${empty}/`))));
   };
 
-  const renameFile = (name: string) => {
-    const next = window.prompt("New name", name)?.trim();
+  // A copy of the site to keep on the kid's computer.
+  const download = () => {
+    const link = document.createElement("a");
 
-    if (!next || next === name || files[next]) return;
-
-    const { [name]: file, ...rest } = files;
-
-    update({ ...rest, [next]: file });
-    if (active === name) setActive(next);
-    if (previewPage === name) setPreviewPage(next);
+    link.href = URL.createObjectURL(toZip({ files: filesRef.current, storage: {} }));
+    link.download = "my-site.zip";
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
   };
 
-  const deleteFile = (name: string) => {
-    if (!window.confirm(`Delete ${name}?`)) return;
+  // Links still naming a file's old name are pointed out, since a site's
+  // pages find each other by name.
+  const warnLinks = (oldPath: string, next: WebFiles) => {
+    const oldName = oldPath.slice(oldPath.lastIndexOf("/") + 1);
+    const naming = Object.keys(next).filter((path) => next[path].text?.includes(oldName));
 
-    const { [name]: _removed, ...rest } = files;
-
-    update(rest);
-    if (active === name) setActive(Object.keys(rest)[0] ?? "");
-    // The preview leaves a page that is gone for the site's first page.
-    if (previewPageRef.current === name) {
-      const entry = entryPage(rest);
-
-      previewPageRef.current = entry;
-      setPreviewPage(entry);
-      setAddress(entry);
+    if (naming.length > 0) {
+      noticesRef.current.push({
+        level: "warn",
+        text: `Renamed ${oldPath}. Links to it in ${naming.join(", ")} may still use the old name.`,
+      });
     }
   };
 
+  const renameFile = (path: string) => {
+    const next = window.prompt("New name. Add a folder to move it, for example images/cat.png", path)?.trim();
+
+    if (!next || next === path) return;
+    if (badName(next)) return;
+    if (files[next]) {
+      window.alert(`There is already a file called ${next}.`);
+      return;
+    }
+    // A text file stays a kind the editor can open.
+    if (files[path].text !== undefined && !isText(next)) {
+      window.alert("Keep the ending: .html, .css, .js, .json, .md, .svg or .txt.");
+      return;
+    }
+
+    const { [path]: file, ...rest } = files;
+    const renamed = { ...rest, [next]: file };
+
+    update(renamed);
+    if (active === path) setActive(next);
+    if (previewPageRef.current === path) {
+      previewPageRef.current = next;
+      setPreviewPage(next);
+      setAddress(next);
+    }
+    setEmptyFolders(emptyFolders.filter((empty) => !next.startsWith(`${empty}/`)));
+    warnLinks(path, renamed);
+  };
+
+  const renameFolder = (path: string) => {
+    const next = window.prompt("New folder name (or path)", path)?.trim().replace(/\/+$/, "");
+
+    if (!next || next === path) return;
+    if (badName(next)) return;
+    if (next.startsWith(`${path}/`)) {
+      window.alert("A folder can't go inside itself.");
+      return;
+    }
+
+    const moving = Object.keys(files).filter((file) => file.startsWith(`${path}/`));
+    const renamed: WebFiles = {};
+
+    for (const [file, content] of Object.entries(files)) {
+      renamed[moving.includes(file) ? `${next}${file.slice(path.length)}` : file] = content;
+    }
+    if (Object.keys(renamed).length !== Object.keys(files).length || emptyFolders.includes(next)) {
+      window.alert(`There is already a folder called ${next}.`);
+      return;
+    }
+
+    update(renamed);
+    setEmptyFolders(emptyFolders.map((empty) => (empty === path || empty.startsWith(`${path}/`) ? `${next}${empty.slice(path.length)}` : empty)));
+    if (folder === path || folder.startsWith(`${path}/`)) setFolder(`${next}${folder.slice(path.length)}`);
+    if (moving.includes(active)) setActive(`${next}${active.slice(path.length)}`);
+    if (moving.includes(previewPageRef.current)) {
+      const page = `${next}${previewPageRef.current.slice(path.length)}`;
+
+      previewPageRef.current = page;
+      setPreviewPage(page);
+      setAddress(page);
+    }
+    if (moving.length > 0) warnLinks(`${path}/`, renamed);
+  };
+
+  const deleteFile = (path: string) => {
+    if (!window.confirm(`Delete ${path}?`)) return;
+
+    const { [path]: _removed, ...rest } = files;
+
+    update(rest);
+    if (active === path) setActive(Object.keys(rest)[0] ?? "");
+    leaveGonePage(rest);
+  };
+
+  const deleteFolder = (path: string) => {
+    const inside = Object.keys(files).filter((file) => file.startsWith(`${path}/`));
+
+    if (!window.confirm(inside.length > 0 ? `Delete ${path} and the ${inside.length} file${inside.length === 1 ? "" : "s"} in it?` : `Delete ${path}?`)) {
+      return;
+    }
+
+    const rest = Object.fromEntries(Object.entries(files).filter(([file]) => !inside.includes(file)));
+
+    if (inside.length > 0) update(rest);
+    setEmptyFolders(emptyFolders.filter((empty) => empty !== path && !empty.startsWith(`${path}/`)));
+    if (folder === path || folder.startsWith(`${path}/`)) setFolder(folderOf(path));
+    if (inside.includes(active)) setActive(Object.keys(rest)[0] ?? "");
+    leaveGonePage(rest);
+  };
+
+  const uploadRef = useRef<HTMLInputElement>(null);
+
   const activeFile = files[active];
+  const activePicture = useImageUrl(activeFile?.bytes, imageType(active));
 
   return (
     <div className="layout">
       <aside className="files">
         <div className="files-header">
           <span>Files</span>
-          {!readOnly && (
-            <span className="files-actions">
-              <button onClick={addFile} title="New file" type="button">+</button>
-              <label title="Add an image">
-                🖼
-                <input accept="image/*" hidden multiple onChange={(e) => void addImage(e.target.files)} type="file" />
-              </label>
-            </span>
-          )}
+          <span className="files-actions">
+            {!readOnly && (
+              <>
+                <button onClick={addFile} title="New file" type="button">+</button>
+                <button onClick={addFolder} title="New folder" type="button">📁</button>
+                <button onClick={() => uploadRef.current?.click()} title="Add files from your computer" type="button">⇪</button>
+                <input
+                  hidden
+                  multiple
+                  onChange={(e) => {
+                    void addFromComputer(e.target.files);
+                    e.target.value = "";
+                  }}
+                  ref={uploadRef}
+                  type="file"
+                />
+              </>
+            )}
+            <button onClick={download} title="Download your site" type="button">⤓</button>
+          </span>
         </div>
-        <ul>
-          {names.map((name) => (
-            <li className={name === active ? "active" : ""} key={name}>
-              <button className="file-name" onClick={() => setActive(name)} type="button">
-                {name}
-              </button>
-              {!readOnly && (
-                <span className="file-actions">
-                  <button onClick={() => renameFile(name)} title="Rename" type="button">✎</button>
-                  <button onClick={() => deleteFile(name)} title="Delete" type="button">×</button>
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
+        <FileTree
+          active={active}
+          current={folder}
+          emptyFolders={emptyFolders}
+          onDelete={(path, isFolder) => (isFolder ? deleteFolder(path) : deleteFile(path))}
+          onOpen={(path) => {
+            setActive(path);
+            setFolder(folderOf(path));
+          }}
+          onPickFolder={setFolder}
+          onRename={(path, isFolder) => (isFolder ? renameFolder(path) : renameFile(path))}
+          paths={names}
+          readOnly={readOnly}
+        />
       </aside>
 
       <main className="code">
@@ -514,8 +717,11 @@ const WebEditor = () => {
           />
         ) : activeFile ? (
           <div className="binary">
-            <img alt={active} src={URL.createObjectURL(new Blob([(activeFile.bytes ?? new Uint8Array()) as BlobPart]))} />
-            <p>{active} · {Math.round((activeFile.bytes?.byteLength ?? 0) / 1024)} KB</p>
+            {activePicture && <img alt={active} src={activePicture} />}
+            <p>
+              {active} · {Math.round((activeFile.bytes?.byteLength ?? 0) / 1024)} KB
+              {!activePicture && ", kept with your site"}
+            </p>
           </div>
         ) : (
           <div className="binary">No file selected.</div>
