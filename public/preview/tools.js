@@ -32,6 +32,7 @@ window.__CODEYKIDS_TOOLS__ = (initial, post) => {
   const AI_TIMEOUT_MS = 60000;
   const asked = new Map();
   let lastId = 0;
+  const PAGE_KEY = Math.random().toString(36).slice(2);
 
   const askAi = (request) =>
     new Promise((resolve, reject) => {
@@ -46,7 +47,9 @@ window.__CODEYKIDS_TOOLS__ = (initial, post) => {
 
       lastId += 1;
 
-      const id = lastId;
+      // Unique to this page: a reply to a question an earlier page or run
+      // asked (whose count also started at 1) is never taken for this one's.
+      const id = `${PAGE_KEY}-${lastId}`;
       const timer = setTimeout(() => {
         asked.delete(id);
         reject(new Error("The AI took too long to answer. Try again."));
