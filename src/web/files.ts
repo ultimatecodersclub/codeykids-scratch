@@ -235,6 +235,8 @@ const preludeScript = (pages: string[], current: string, storage: Storage, epoch
     if (e.data.type === "preview:tools") tools.set(e.data.tools);
     if (e.data.type === "preview:aiReply") tools.answer(e.data);
   });
+  // So the editor sends any setting changed while this page was built.
+  post({ page: CURRENT, type: "preview:location" });
 
   const go = (page) => post({ page, type: "preview:navigate" });
   const pageOf = (href) => {

@@ -347,6 +347,13 @@ const WebEditor = () => {
       if (event.data.type === "preview:location") {
         const page = String(event.data.page);
 
+        // A page starting up has the settings the run began with: one changed
+        // since (while the page loaded) reaches it now.
+        previewRef.current?.contentWindow?.postMessage(
+          { tools: toolsRef.current, type: "preview:tools" },
+          servedRef.current ? previewOrigin : "*",
+        );
+
         previewPageRef.current = page;
         setPreviewPage(page);
         setAddress(page);
