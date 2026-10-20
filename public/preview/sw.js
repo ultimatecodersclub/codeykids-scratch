@@ -102,9 +102,16 @@ const sessionOfRequest = async (event, url) => {
   return null;
 };
 
-// Asked for afresh each page (the host serves it uncached), so a deploy that
-// changes only the prelude reaches pages already open at their next run.
-const prelude = async () => (await fetch(`${HOST}prelude.js`, { cache: "no-cache" })).text();
+// Asked for afresh each page (the host serves them uncached), so a deploy
+// that changes only the prelude reaches pages already open at their next run.
+// The console comes first: the prelude starts it.
+const prelude = async () => {
+  const [devConsole, own] = await Promise.all(
+    ["console.js", "prelude.js"].map(async (name) => (await fetch(`${HOST}${name}`, { cache: "no-cache" })).text()),
+  );
+
+  return `${devConsole}\n${own}`;
+};
 
 // What a server says for a page that isn't there. It has the prelude too, so
 // the editor's address bar shows the address that was asked for.
@@ -137,6 +144,19 @@ const withPrelude = (html, session) => {
     ? `${html.slice(0, head.index + head[0].length)}${tag}${html.slice(head.index + head[0].length)}`
     : `${tag}${html}`;
 };
+
+// A script from another website only says what went wrong (not just "Script
+// error.") when it is fetched with CORS. These CDNs allow that for every
+// file, so asking can't stop a script loading; other websites are left alone.
+// The editor's built page does the same (src/web/files.ts).
+const CORS_CDNS = /^https:\/\/(cdn\.jsdelivr\.net|unpkg\.com|cdnjs\.cloudflare\.com|code\.jquery\.com|ajax\.googleapis\.com|esm\.sh|cdn\.skypack\.dev)\//i;
+
+const withCors = (html) =>
+  html.replace(/<script\b[^>]*>/gi, (tag) => {
+    const src = /\bsrc\s*=\s*["']([^"']+)["']/i.exec(tag);
+
+    return src && CORS_CDNS.test(src[1]) && !/\bcrossorigin\b/i.test(tag) ? `${tag.slice(0, -1)} crossorigin="anonymous">` : tag;
+  });
 
 const HEADERS = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
 
@@ -205,7 +225,7 @@ const serve = async (event, session, path) => {
   const type = typeOf(name);
 
   if (type.startsWith("text/html")) {
-    return new Response(withPrelude(await stored.text(), session), {
+    return new Response(withPrelude(withCors(await stored.text()), session), {
       headers: { ...HEADERS, "Content-Type": type },
     });
   }
