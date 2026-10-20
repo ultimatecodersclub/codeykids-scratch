@@ -193,15 +193,24 @@ export const SavedData = ({ data, onChange, readOnly }: SavedDataProps) => {
 
 const SavedValue = ({ onCommit, readOnly, value }: { onCommit: (value: string) => void; readOnly: boolean; value: string }) => {
   const [draft, setDraft] = useState(value);
+  const editing = useRef(false);
 
   // The page saved something new: show it, unless the kid is typing.
-  useEffect(() => setDraft(value), [value]);
+  useEffect(() => {
+    if (!editing.current) setDraft(value);
+  }, [value]);
 
   return (
     <textarea
       aria-label="Value"
-      onBlur={() => draft !== value && onCommit(draft)}
+      onBlur={() => {
+        editing.current = false;
+        if (draft !== value) onCommit(draft);
+      }}
       onChange={(e) => setDraft(e.target.value)}
+      onFocus={() => {
+        editing.current = true;
+      }}
       onKeyDown={(e) => {
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
