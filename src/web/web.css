@@ -17,6 +17,10 @@ button { font: inherit; cursor: pointer; }
 .files li:hover .file-actions { display: inline-flex; }
 .file-actions button { border: 0; background: none; padding: 2px 4px; color: #64748b; }
 .file-actions button:hover { color: #0f172a; }
+.files li.folder .file-name { color: #334155; }
+.files li.folder.current { background: #eff6ff; }
+.files li.folder.current .file-name { color: #1d4ed8; font-weight: 600; }
+.file-name .empty { color: #94a3b8; font-weight: 400; }
 
 .code { min-width: 0; min-height: 0; border-right: 1px solid #cbd5e1; }
 .editor { height: 100%; }
