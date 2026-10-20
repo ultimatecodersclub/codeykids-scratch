@@ -7,6 +7,8 @@ import { answerSnapshot, listenToPage, postToPage } from "../bridge";
 import { useImageUrl } from "../python/useImageUrl";
 import { codeCard, pictureOfPage } from "../snapshot";
 import { unpackZip } from "../zip";
+import { AiAccess, askAi, requestFrom } from "./ai";
+import { AiHelper } from "./AiHelper";
 import { CodeEditor } from "./CodeEditor";
 import { ConsoleLines, useConsole } from "./Console";
 import { FileTree } from "./FileTree";
@@ -115,7 +117,11 @@ const WebEditor = () => {
   // saved), and which tab is under it: the console or the saved data.
   const [device, setDevice] = useState<Device>("desktop");
   const [tools, setToolsState] = useState<PreviewTools>({ network: "online", reducedMotion: false });
-  const [paneTab, setPaneTab] = useState<"console" | "saved">("console");
+  const [paneTab, setPaneTab] = useState<"ai" | "console" | "saved">("console");
+  // Where CodeyKids' AI is asked, and the token for it, from the lesson
+  // page. State for the coding AI tab; a ref for the page's questions.
+  const [ai, setAi] = useState<AiAccess>();
+  const aiRef = useRef<AiAccess>();
   // What the page has saved, shown in the Saved data tab. Kept up to date
   // only while that tab is open: a game that saves every frame mustn't
   // re-render the editor every frame.
@@ -219,6 +225,10 @@ const WebEditor = () => {
             setPreviewPage(entry);
             setAddress(entry);
             if (message.readOnly !== undefined) setReadOnly(message.readOnly);
+            if (message.ai) {
+              aiRef.current = message.ai;
+              setAi(message.ai);
+            }
             setGeneration((i) => i + 1);
             postToPage({ type: "loaded" });
           } catch (error) {
@@ -260,6 +270,10 @@ const WebEditor = () => {
           break;
         case "setReadOnly":
           setReadOnly(message.value);
+          break;
+        case "setAi":
+          aiRef.current = message.ai;
+          setAi(message.ai);
           break;
       }
     });
@@ -351,6 +365,23 @@ const WebEditor = () => {
         else setPreviewPage(page);
       } else if (event.data.type === "preview:console") {
         receiveConsole(event.data);
+      } else if (event.data.type === "preview:ai") {
+        // A question from codeykids.ai or the Ollama stand-in: asked here,
+        // where the token is, and answered back to the page by its id.
+        const id = event.data.id;
+        const request = requestFrom(event.data.request);
+        const frame = previewRef.current?.contentWindow;
+        const reply = (answer: Record<string, unknown>) =>
+          frame?.postMessage({ id, type: "preview:aiReply", ...answer }, servedRef.current ? previewOrigin : "*");
+
+        if (!request) {
+          reply({ error: "The AI needs at least one message." });
+          return;
+        }
+        askAi(aiRef.current, request).then(
+          (answer) => reply({ blocked: answer.blocked, content: answer.content }),
+          (error: Error) => reply({ error: error.message }),
+        );
       } else if (event.data.type === "preview:storage") {
         const data = event.data.data as Storage;
 
@@ -933,6 +964,15 @@ const WebEditor = () => {
               >
                 Saved data
               </button>
+              <button
+                aria-selected={paneTab === "ai"}
+                onClick={() => setPaneTab("ai")}
+                role="tab"
+                title="Ask CodeyKids' AI to write or explain code"
+                type="button"
+              >
+                Coding AI
+              </button>
             </span>
             <span>
               <button onClick={reload} title="Show the page again from the start" type="button">
@@ -945,7 +985,16 @@ const WebEditor = () => {
               )}
             </span>
           </div>
-          {paneTab === "saved" ? (
+          {/* Kept while another tab shows, so the conversation stays. */}
+          <div className="pane-body" hidden={paneTab !== "ai"}>
+            {/* A new project starts a new conversation. */}
+            <AiHelper
+              ai={ai}
+              file={activeFile?.text !== undefined ? { name: active, text: activeFile.text } : undefined}
+              key={generation}
+            />
+          </div>
+          {paneTab === "ai" ? null : paneTab === "saved" ? (
             <SavedData data={savedView} onChange={editStorage} readOnly={readOnly} />
           ) : (
             <ConsoleLines hasFile={(file) => files[file]?.text !== undefined} lines={devConsole.lines} onJump={jumpTo} />

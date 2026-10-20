@@ -158,10 +158,14 @@
 
   delete window.__CODEYKIDS_TOOLS__;
 
-  const tools = typeof installTools === "function" ? installTools(carried("tools") || config.tools || {}) : null;
+  const tools = typeof installTools === "function" ? installTools(carried("tools") || config.tools || {}, inEditor ? post : null) : null;
 
   window.addEventListener("message", (event) => {
     if (event.source !== window.parent || event.origin !== EDITOR || !event.data) return;
+    if (event.data.type === "preview:aiReply") {
+      if (tools) tools.answer(event.data);
+      return;
+    }
     if (event.data.type === "preview:tools") {
       if (tools) tools.set(event.data.tools);
       carry("tools", event.data.tools);
