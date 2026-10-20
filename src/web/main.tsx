@@ -325,6 +325,7 @@ const WebEditor = () => {
       <main className="code">
         {activeFile?.text !== undefined ? (
           <CodeEditor
+            files={names}
             key={generation}
             name={active}
             onChange={(text) => update({ ...filesRef.current, [active]: { text } })}
