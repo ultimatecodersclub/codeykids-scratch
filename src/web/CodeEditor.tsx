@@ -32,70 +32,74 @@ type Props = {
   value: string;
 };
 
-// One CodeMirror instance that swaps its document when the file changes.
+// One CodeMirror view showing one file at a time. Each file keeps its own
+// state, so undo only ever steps back through that file's own edits (an undo
+// right after a switch must not bring the other file's text in), and coming
+// back to a file brings its undo history back with it.
 export const CodeEditor = ({ name, onChange, readOnly, value }: Props) => {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView>();
   const onChangeRef = useRef(onChange);
-  const languageRef = useRef(new Compartment());
-  const readOnlyRef = useRef(new Compartment());
+  const readOnlyRef = useRef(readOnly);
+  const readOnlyCompartment = useRef(new Compartment());
   const shownRef = useRef(name);
-  // True while this component replaces the document itself.
-  const swappingRef = useRef(false);
+  const statesRef = useRef(new Map<string, EditorState>());
 
   onChangeRef.current = onChange;
+  readOnlyRef.current = readOnly;
+
+  const stateFor = (doc: string, fileName: string) =>
+    EditorState.create({
+      doc,
+      extensions: [
+        lineNumbers(),
+        history(),
+        keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+        languageFor(fileName),
+        readOnlyCompartment.current.of(EditorState.readOnly.of(readOnlyRef.current)),
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) onChangeRef.current(update.state.doc.toString());
+        }),
+        EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { fontFamily: "ui-monospace, Menlo, monospace", fontSize: "14px" } }),
+      ],
+    });
 
   useEffect(() => {
     if (!hostRef.current) return;
 
-    const view = new EditorView({
-      parent: hostRef.current,
-      state: EditorState.create({
-        doc: value,
-        extensions: [
-          lineNumbers(),
-          history(),
-          keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
-          languageRef.current.of(languageFor(name)),
-          readOnlyRef.current.of(EditorState.readOnly.of(readOnly)),
-          EditorView.updateListener.of((update) => {
-            if (update.docChanged && !swappingRef.current) {
-              onChangeRef.current(update.state.doc.toString());
-            }
-          }),
-          EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { fontFamily: "ui-monospace, Menlo, monospace", fontSize: "14px" } }),
-        ],
-      }),
-    });
+    const view = new EditorView({ parent: hostRef.current, state: stateFor(value, name) });
 
     viewRef.current = view;
 
     return () => view.destroy();
-    // The document is replaced below when the file changes; creating the view
-    // once keeps undo history and focus.
+    // The view is made once and shows each file's own state below, which
+    // keeps focus across switches.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     const view = viewRef.current;
-    // The first document came with the view; replacing it again would report
-    // an edit the kid never made.
+    // The first file came with the view.
     if (!view || shownRef.current === name) return;
 
+    statesRef.current.set(shownRef.current, view.state);
+
+    // A file's own state again, unless its text changed meanwhile (a rename
+    // or a file that was replaced): then a fresh one. Setting a state is no
+    // edit, so nothing is reported.
+    const saved = statesRef.current.get(name);
+    const state = saved && saved.doc.toString() === value ? saved : stateFor(value, name);
+
     shownRef.current = name;
-    swappingRef.current = true;
-    view.dispatch({
-      changes: { from: 0, insert: value, to: view.state.doc.length },
-      effects: languageRef.current.reconfigure(languageFor(name)),
-    });
-    swappingRef.current = false;
-    // Only a file switch replaces the document; edits flow the other way.
+    view.setState(state);
+    view.dispatch({ effects: readOnlyCompartment.current.reconfigure(EditorState.readOnly.of(readOnlyRef.current)) });
+    // Only a file switch shows another document; edits flow the other way.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name]);
 
   useEffect(() => {
     viewRef.current?.dispatch({
-      effects: readOnlyRef.current.reconfigure(EditorState.readOnly.of(readOnly)),
+      effects: readOnlyCompartment.current.reconfigure(EditorState.readOnly.of(readOnly)),
     });
   }, [readOnly]);
 
