@@ -107,3 +107,24 @@ span.console-where { text-decoration: none; max-width: 40%; overflow: hidden; te
 .editor .cm-editor { background: #fff; color: #1e293b; }
 .editor .cm-gutters { background: #f1f5f9; color: #94a3b8; border-right: 1px solid #e2e8f0; }
 .editor .cm-activeLine { background: #f8fafc; }
+
+/* The Coding AI tab. */
+.pane-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pane-body[hidden] { display: none; }
+.ai-helper { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ai-turns { flex: 1; overflow: auto; padding: 6px 10px; display: flex; flex-direction: column; gap: 8px; }
+.ai-question { align-self: flex-end; max-width: 85%; margin: 0; padding: 4px 8px; border-radius: 6px; background: #1e3a8a; color: #dbeafe; white-space: pre-wrap; font-family: system-ui, sans-serif; }
+.ai-reply { display: flex; flex-direction: column; gap: 4px; }
+.ai-text { margin: 0; white-space: pre-wrap; color: #e2e8f0; font-family: system-ui, sans-serif; line-height: 1.4; }
+.ai-error { margin: 0; color: #fca5a5; font-family: system-ui, sans-serif; }
+.ai-code { position: relative; border: 1px solid #334155; border-radius: 4px; background: #020617; }
+.ai-code pre { margin: 0; padding: 6px 8px; overflow-x: auto; color: #e2e8f0; font: inherit; }
+.ai-code button { position: absolute; top: 4px; right: 4px; border: 1px solid #334155; border-radius: 4px; background: #1e293b; color: #cbd5e1; font: 11px system-ui, sans-serif; padding: 1px 6px; }
+.ai-ask { display: flex; flex-direction: column; gap: 4px; padding: 6px 10px; border-top: 1px solid #1e293b; }
+.ai-ask textarea { resize: vertical; border: 1px solid #334155; border-radius: 4px; background: #0b1222; color: #f1f5f9; font: 13px system-ui, sans-serif; padding: 4px 6px; }
+.ai-ask-row { display: flex; align-items: center; gap: 8px; justify-content: flex-end; color: #94a3b8; font: 12px system-ui, sans-serif; }
+.ai-ask-row label { margin-right: auto; display: inline-flex; align-items: center; gap: 4px; }
+.ai-ask-row button { border: 1px solid #334155; background: #1e293b; color: #e2e8f0; border-radius: 4px; font: inherit; padding: 2px 10px; }
+.ai-ask-row button[type="submit"] { background: #2563eb; border-color: #2563eb; color: #fff; }
+.ai-ask-row button:disabled { opacity: 0.5; cursor: default; }
+.console-input[hidden] { display: none; }
