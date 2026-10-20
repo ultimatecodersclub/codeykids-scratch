@@ -448,10 +448,10 @@ const WebEditor = () => {
     return true;
   };
 
-  // Whatever the files of a site now are, the preview leaves a page that is
-  // gone for the site's first page.
-  const leaveGonePage = (next: WebFiles) => {
-    if (next[previewPageRef.current]) return;
+  // The preview leaves a page that was just deleted for the site's first
+  // page (a typed address that was never there stays).
+  const leaveGonePage = (next: WebFiles, deleted: string[]) => {
+    if (!deleted.includes(previewPageRef.current)) return;
 
     const entry = entryPage(next);
 
@@ -515,7 +515,7 @@ const WebEditor = () => {
         let unpacked: WebFiles;
 
         try {
-          unpacked = unpackZip(bytes, { isText, keep: (name) => isSitePath(inFolder(folder, name)) });
+          unpacked = unpackZip(bytes, { isText, keep: (name) => isSitePath(inFolder(folder, name)), stripTop: false });
         } catch {
           window.alert(`${file.name} isn't a zip that can be opened.`);
           continue;
@@ -557,9 +557,11 @@ const WebEditor = () => {
 
   // Links still naming a file's old name are pointed out, since a site's
   // pages find each other by name.
-  const warnLinks = (oldPath: string, next: WebFiles) => {
-    const oldName = oldPath.slice(oldPath.lastIndexOf("/") + 1);
-    const naming = Object.keys(next).filter((path) => next[path].text?.includes(oldName));
+  const warnLinks = (oldPath: string, newPath: string, next: WebFiles) => {
+    const oldName = oldPath.replace(/\/$/, "").split("/").pop() ?? oldPath;
+    // As a link would spell it: after a quote, a slash or url(.
+    const linking = new RegExp(`["'/(]${oldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(["'/)#?]|$)`, "m");
+    const naming = Object.keys(next).filter((path) => path !== newPath && linking.test(next[path].text ?? ""));
 
     if (naming.length > 0) {
       noticesRef.current.push({
@@ -595,7 +597,7 @@ const WebEditor = () => {
       setAddress(next);
     }
     setEmptyFolders(emptyFolders.filter((empty) => !next.startsWith(`${empty}/`)));
-    warnLinks(path, renamed);
+    warnLinks(path, next, renamed);
   };
 
   const renameFolder = (path: string) => {
@@ -614,7 +616,9 @@ const WebEditor = () => {
     for (const [file, content] of Object.entries(files)) {
       renamed[moving.includes(file) ? `${next}${file.slice(path.length)}` : file] = content;
     }
-    if (Object.keys(renamed).length !== Object.keys(files).length || emptyFolders.includes(next)) {
+    const taken = Object.keys(files).some((file) => file.startsWith(`${next}/`)) || emptyFolders.includes(next);
+
+    if (taken || Object.keys(renamed).length !== Object.keys(files).length) {
       window.alert(`There is already a folder called ${next}.`);
       return;
     }
@@ -630,7 +634,7 @@ const WebEditor = () => {
       setPreviewPage(page);
       setAddress(page);
     }
-    if (moving.length > 0) warnLinks(`${path}/`, renamed);
+    if (moving.length > 0) warnLinks(`${path}/`, "", renamed);
   };
 
   const deleteFile = (path: string) => {
@@ -640,7 +644,7 @@ const WebEditor = () => {
 
     update(rest);
     if (active === path) setActive(Object.keys(rest)[0] ?? "");
-    leaveGonePage(rest);
+    leaveGonePage(rest, [path]);
   };
 
   const deleteFolder = (path: string) => {
@@ -656,7 +660,7 @@ const WebEditor = () => {
     setEmptyFolders(emptyFolders.filter((empty) => empty !== path && !empty.startsWith(`${path}/`)));
     if (folder === path || folder.startsWith(`${path}/`)) setFolder(folderOf(path));
     if (inside.includes(active)) setActive(Object.keys(rest)[0] ?? "");
-    leaveGonePage(rest);
+    leaveGonePage(rest, inside);
   };
 
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -687,7 +691,10 @@ const WebEditor = () => {
                 />
               </>
             )}
-            <button onClick={download} title="Download your site" type="button">⤓</button>
+            {/* Not someone else's site, shown read-only. */}
+            {!readOnly && (
+              <button onClick={download} title="Download your site" type="button">⤓</button>
+            )}
           </span>
         </div>
         <FileTree
