@@ -234,6 +234,8 @@ const preludeScript = (pages: string[], current: string, storage: Storage, epoch
     if (e.data.type === "preview:eval") devConsole.evaluate(String(e.data.code));
     if (e.data.type === "preview:tools") tools.set(e.data.tools);
   });
+  // So the editor sends any setting changed while this page was built.
+  post({ page: CURRENT, type: "preview:location" });
 
   const go = (page) => post({ page, type: "preview:navigate" });
   const pageOf = (href) => {
