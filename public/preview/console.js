@@ -249,10 +249,15 @@ window.__CODEYKIDS_CONSOLE__ = ({ post, place, page }) => {
     post(message);
   };
 
+  // The page's own console call never fails because of the editor's copy.
   const wrap = (name, run) => {
     console[name] = (...args) => {
       if (native[name]) native[name](...args);
-      run(...args);
+      try {
+        run(...args);
+      } catch (error) {
+        // Not shown in the editor; the browser's console still has it.
+      }
     };
   };
 
