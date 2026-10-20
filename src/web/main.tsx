@@ -987,7 +987,12 @@ const WebEditor = () => {
           </div>
           {/* Kept while another tab shows, so the conversation stays. */}
           <div className="pane-body" hidden={paneTab !== "ai"}>
-            <AiHelper ai={ai} file={activeFile?.text !== undefined ? { name: active, text: activeFile.text } : undefined} />
+            {/* A new project starts a new conversation. */}
+            <AiHelper
+              ai={ai}
+              file={activeFile?.text !== undefined ? { name: active, text: activeFile.text } : undefined}
+              key={generation}
+            />
           </div>
           {paneTab === "ai" ? null : paneTab === "saved" ? (
             <SavedData data={savedView} onChange={editStorage} readOnly={readOnly} />
