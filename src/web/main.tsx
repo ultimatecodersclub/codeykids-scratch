@@ -69,9 +69,10 @@ const versionOf = (file: WebFiles[string]) => {
 };
 
 const CHANGED_THROTTLE_MS = 1000;
-// A page that saves state on every frame must not push the autosave back for
-// ever: its writes count as one change a minute at most.
-const STORAGE_CHANGED_THROTTLE_MS = 60_000;
+// What the site saves while it runs reaches the page within this, however
+// often the site writes. It is a change by the run (the page saves it a
+// little later than an edit, and never for staff trying a kid's site).
+const STORAGE_REPORT_MS = 2000;
 const CONSOLE_CAP = 500;
 
 type ConsoleLine = { id: number; level: string; text: string };
@@ -114,7 +115,10 @@ const WebEditor = () => {
   // Each build gets an epoch; messages from an older page are dropped.
   const epochRef = useRef(0);
   const lastChangedAt = useRef(0);
-  const lastStorageChangedAt = useRef(0);
+  const storageTimer = useRef<number>();
+  // Counts the projects loaded: the page's sessionStorage lasts across runs
+  // of one project, not into the next.
+  const projectRef = useRef(0);
   const previewRef = useRef<HTMLIFrameElement>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
   // The preview host keeps the site's files between runs of this editor's
@@ -195,6 +199,10 @@ const WebEditor = () => {
             // nothing it still does lands on the new one.
             setSrcdoc("");
             setPreviewSrc("");
+            // A report the old project's run had waiting is not this one's.
+            window.clearTimeout(storageTimer.current);
+            storageTimer.current = undefined;
+            projectRef.current += 1;
             // New files go to the top of this site, and the last site's
             // empty folders aren't this one's.
             setFolder("");
@@ -274,6 +282,7 @@ const WebEditor = () => {
         epoch: epochRef.current,
         files: changedFiles,
         page: previewPageRef.current,
+        project: projectRef.current,
         storage: storageRef.current,
         type: "preview:files",
         versions: fileVersions,
@@ -339,12 +348,12 @@ const WebEditor = () => {
 
         storageRef.current = { ...data };
 
-        const now = Date.now();
+        if (readOnlyRef.current || storageTimer.current !== undefined) return;
 
-        if (readOnlyRef.current || now - lastStorageChangedAt.current < STORAGE_CHANGED_THROTTLE_MS) return;
-
-        lastStorageChangedAt.current = now;
-        changed();
+        storageTimer.current = window.setTimeout(() => {
+          storageTimer.current = undefined;
+          if (!readOnlyRef.current) postToPage({ byRun: true, type: "changed" });
+        }, STORAGE_REPORT_MS);
       }
     };
 
@@ -387,13 +396,23 @@ const WebEditor = () => {
   // The preview host forgets this editor's site when the editor goes away,
   // so the next kid on this computer can't read it there.
   useEffect(() => {
-    const forget = () => previewRef.current?.contentWindow?.postMessage({ type: "preview:dispose" }, previewOrigin);
+    const forget = () => {
+      // What the page saved in its last moments still reaches the lesson
+      // page, which saves it as it closes.
+      if (storageTimer.current !== undefined) {
+        window.clearTimeout(storageTimer.current);
+        storageTimer.current = undefined;
+        if (!readOnlyRef.current) postToPage({ byRun: true, type: "changed" });
+      }
+      previewRef.current?.contentWindow?.postMessage({ type: "preview:dispose" }, previewOrigin);
+    };
 
     window.addEventListener("pagehide", forget);
 
     return () => {
       window.removeEventListener("pagehide", forget);
       window.clearTimeout(hostTimer.current);
+      window.clearTimeout(storageTimer.current);
     };
   }, []);
 
