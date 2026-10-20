@@ -152,8 +152,21 @@
     post,
   }) : { evaluate: () => {} };
 
+  // tools.js, served with console.js. The editor's settings for the run,
+  // or the ones it changed since (carried from page to page).
+  const installTools = window.__CODEYKIDS_TOOLS__;
+
+  delete window.__CODEYKIDS_TOOLS__;
+
+  const tools = typeof installTools === "function" ? installTools(carried("tools") || config.tools || {}) : null;
+
   window.addEventListener("message", (event) => {
     if (event.source !== window.parent || event.origin !== EDITOR || !event.data) return;
+    if (event.data.type === "preview:tools") {
+      if (tools) tools.set(event.data.tools);
+      carry("tools", event.data.tools);
+      return;
+    }
     // The editor is closing: the site's files and saved data leave this
     // host, so the next kid on this computer can't read them here.
     if (event.data.type === "preview:dispose") {

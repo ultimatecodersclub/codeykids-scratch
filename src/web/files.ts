@@ -1,6 +1,7 @@
 import { strToU8 } from "fflate";
 
 import consoleScript from "../../public/preview/console.js?raw";
+import toolsScript from "../../public/preview/tools.js?raw";
 import { bytesOf, packZip, ProjectFile, ProjectFiles, textMatcher, unpackZip } from "../zip";
 
 // A kid's site: text files edited in place, binary files (images) kept as
@@ -9,6 +10,9 @@ export type WebFile = ProjectFile;
 export type WebFiles = ProjectFiles;
 export type Storage = Record<string, string>;
 export type WebProject = { files: WebFiles; storage: Storage };
+// The preview's stand-ins for DevTools' network and motion settings
+// (public/preview/tools.js).
+export type PreviewTools = { network: "offline" | "online" | "slow"; reducedMotion: boolean };
 
 const MIME_TYPES: Record<string, string> = {
   avif: "image/avif",
@@ -166,8 +170,10 @@ const CORS_CDNS = /^https:\/\/(cdn\.jsdelivr\.net|unpkg\.com|cdnjs\.cloudflare\.
 // elsewhere and forms are handled, since the page has no address of its own.
 // Every message carries the build's epoch so a page on its way out cannot
 // speak for the next one.
-const preludeScript = (pages: string[], current: string, storage: Storage, epoch: number) => `<script>${consoleScript}
+const preludeScript = (pages: string[], current: string, storage: Storage, epoch: number, tools: PreviewTools) => `<script>${consoleScript}
 //# sourceURL=__codeykids__/console.js
+</script><script>${toolsScript}
+//# sourceURL=__codeykids__/tools.js
 </script><script>
 (() => {
   const EPOCH = ${epoch};
@@ -220,10 +226,16 @@ const preludeScript = (pages: string[], current: string, storage: Storage, epoch
     return { file: url, line };
   };
   const devConsole = install({ page: CURRENT, place, post });
+  // tools.js, in the script before the console's.
+  const tools = window.__CODEYKIDS_TOOLS__(${inlineJSON(tools)});
+  delete window.__CODEYKIDS_TOOLS__;
   window.addEventListener("message", (e) => {
-    if (e.source !== window.parent || !e.data || e.data.type !== "preview:eval") return;
-    devConsole.evaluate(String(e.data.code));
+    if (e.source !== window.parent || !e.data) return;
+    if (e.data.type === "preview:eval") devConsole.evaluate(String(e.data.code));
+    if (e.data.type === "preview:tools") tools.set(e.data.tools);
   });
+  // So the editor sends any setting changed while this page was built.
+  post({ page: CURRENT, type: "preview:location" });
 
   const go = (page) => post({ page, type: "preview:navigate" });
   const pageOf = (href) => {
@@ -273,7 +285,13 @@ const preludeScript = (pages: string[], current: string, storage: Storage, epoch
 // preview needs no server: stylesheets and scripts become inline tags and
 // images become data URLs. Links to the site's other pages stay as they are
 // and are handled by the prelude.
-export const buildPreview = (files: WebFiles, page: string, storage: Storage = {}, epoch = 0) => {
+export const buildPreview = (
+  files: WebFiles,
+  page: string,
+  storage: Storage = {},
+  epoch = 0,
+  tools: PreviewTools = { network: "online", reducedMotion: false },
+) => {
   let html = files[page]?.text ?? "";
 
   // The page's own scripts are marked with the line they start on, before
@@ -311,7 +329,7 @@ export const buildPreview = (files: WebFiles, page: string, storage: Storage = {
     return attribute;
   });
 
-  const prelude = preludeScript(Object.keys(files).filter(isHtml), page, storage, epoch);
+  const prelude = preludeScript(Object.keys(files).filter(isHtml), page, storage, epoch, tools);
 
   // Before anything of the page runs, so its first console.log is caught,
   // and after the doctype and html tags, so the page keeps standards mode.
