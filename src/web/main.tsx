@@ -69,9 +69,10 @@ const versionOf = (file: WebFiles[string]) => {
 };
 
 const CHANGED_THROTTLE_MS = 1000;
-// A page that saves state on every frame must not push the autosave back for
-// ever: its writes count as one change a minute at most.
-const STORAGE_CHANGED_THROTTLE_MS = 60_000;
+// What the site saves while it runs reaches the page within this, however
+// often the site writes. It is a change by the run (the page saves it a
+// little later than an edit, and never for staff trying a kid's site).
+const STORAGE_REPORT_MS = 2000;
 const CONSOLE_CAP = 500;
 
 type ConsoleLine = { id: number; level: string; text: string };
@@ -114,7 +115,7 @@ const WebEditor = () => {
   // Each build gets an epoch; messages from an older page are dropped.
   const epochRef = useRef(0);
   const lastChangedAt = useRef(0);
-  const lastStorageChangedAt = useRef(0);
+  const storageTimer = useRef<number>();
   const previewRef = useRef<HTMLIFrameElement>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
   // The preview host keeps the site's files between runs of this editor's
@@ -335,12 +336,12 @@ const WebEditor = () => {
 
         storageRef.current = { ...data };
 
-        const now = Date.now();
+        if (readOnlyRef.current || storageTimer.current !== undefined) return;
 
-        if (readOnlyRef.current || now - lastStorageChangedAt.current < STORAGE_CHANGED_THROTTLE_MS) return;
-
-        lastStorageChangedAt.current = now;
-        changed();
+        storageTimer.current = window.setTimeout(() => {
+          storageTimer.current = undefined;
+          postToPage({ byRun: true, type: "changed" });
+        }, STORAGE_REPORT_MS);
       }
     };
 
@@ -390,6 +391,7 @@ const WebEditor = () => {
     return () => {
       window.removeEventListener("pagehide", forget);
       window.clearTimeout(hostTimer.current);
+      window.clearTimeout(storageTimer.current);
     };
   }, []);
 

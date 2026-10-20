@@ -38,21 +38,25 @@
   }
 
   const KEY = `codeykids:${SESSION}:${EPOCH}:`;
+  // sessionStorage lasts as long as the editor is open, across runs, as a
+  // browser tab's does; it is never saved.
+  const SESSION_KEY = `codeykids:${SESSION}:session`;
 
-  // Only this run's copies are kept: earlier runs' would fill the 5 MB
-  // sessionStorage has.
+  // Only this run's copies of localStorage are kept: earlier runs' would fill
+  // the 5 MB sessionStorage has.
   try {
     for (let i = real ? real.length - 1 : -1; i >= 0; i -= 1) {
       const name = real.key(i);
 
-      if (name && name.startsWith("codeykids:") && !name.startsWith(KEY)) real.removeItem(name);
+      if (name && name.startsWith("codeykids:") && !name.startsWith(KEY) && name !== SESSION_KEY) real.removeItem(name);
     }
   } catch (error) {
     // Blocked: nothing to tidy.
   }
+  const keyOf = (name) => (name === "session" ? SESSION_KEY : KEY + name);
   const carried = (name) => {
     try {
-      const text = real && real.getItem(KEY + name);
+      const text = real && real.getItem(keyOf(name));
 
       return text ? JSON.parse(text) : null;
     } catch (error) {
@@ -61,7 +65,7 @@
   };
   const carry = (name, items) => {
     try {
-      if (real) real.setItem(KEY + name, JSON.stringify(items));
+      if (real) real.setItem(keyOf(name), JSON.stringify(items));
     } catch (error) {
       // Full or blocked: the stand-in still works for this page.
     }
