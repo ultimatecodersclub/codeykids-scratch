@@ -107,3 +107,4 @@ span.console-where { text-decoration: none; max-width: 40%; overflow: hidden; te
 .editor .cm-editor { background: #fff; color: #1e293b; }
 .editor .cm-gutters { background: #f1f5f9; color: #94a3b8; border-right: 1px solid #e2e8f0; }
 .editor .cm-activeLine { background: #f8fafc; }
+.console-input[hidden] { display: none; }
