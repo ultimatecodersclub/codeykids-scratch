@@ -10,6 +10,7 @@ import { unpackZip } from "../zip";
 import { CodeEditor } from "./CodeEditor";
 import { ConsoleLines, useConsole } from "./Console";
 import { FileTree } from "./FileTree";
+import { DEVICES, Device, PreviewToolbar, SavedData, useFit } from "./PreviewTools";
 import {
   asSiteFile,
   buildPreview,
@@ -21,6 +22,7 @@ import {
   isHtml,
   isSitePath,
   isText,
+  PreviewTools,
   STARTER_FILES,
   Storage,
   storageBytes,
@@ -108,6 +110,17 @@ const WebEditor = () => {
   // on where a console line came from).
   const [jump, setJump] = useState<{ file: string; line: number }>();
   const [command, setCommand] = useState("");
+  // The preview's DevTools stand-ins: the size it is shown at, its network
+  // and motion settings (kept for the whole time the editor is open, not
+  // saved), and which tab is under it: the console or the saved data.
+  const [device, setDevice] = useState<Device>("desktop");
+  const [tools, setToolsState] = useState<PreviewTools>({ network: "online", reducedMotion: false });
+  const [paneTab, setPaneTab] = useState<"console" | "saved">("console");
+  // What the page has saved, shown in the Saved data tab. Kept up to date
+  // only while that tab is open: a game that saves every frame mustn't
+  // re-render the editor every frame.
+  const [savedView, setSavedView] = useState<Storage>({});
+  const { scale, stageRef } = useFit(device);
 
   const filesRef = useRef(files);
   const readOnlyRef = useRef(readOnly);
@@ -119,6 +132,8 @@ const WebEditor = () => {
   const epochRef = useRef(0);
   const lastChangedAt = useRef(0);
   const storageTimer = useRef<number>();
+  const toolsRef = useRef(tools);
+  const savedOpenRef = useRef(false);
   const previewRef = useRef<HTMLIFrameElement>(null);
   // The preview host keeps the site's files between runs of this editor's
   // session; only what changed since is sent again.
@@ -132,6 +147,8 @@ const WebEditor = () => {
   readOnlyRef.current = readOnly;
   previewPageRef.current = previewPage;
   servedRef.current = served;
+  toolsRef.current = tools;
+  savedOpenRef.current = paneTab === "saved";
 
   const names = useMemo(() => Object.keys(files).sort(), [files]);
 
@@ -184,6 +201,7 @@ const WebEditor = () => {
             window.clearTimeout(storageTimer.current);
             storageTimer.current = undefined;
             storageRef.current = project.storage;
+            setSavedView(project.storage);
             setFiles(next);
             setActive(next["index.html"] ? "index.html" : Object.keys(next)[0]);
 
@@ -259,6 +277,7 @@ const WebEditor = () => {
         files: changedFiles,
         page: previewPageRef.current,
         storage: storageRef.current,
+        tools: toolsRef.current,
         type: "preview:files",
         versions: fileVersions,
       },
@@ -322,6 +341,7 @@ const WebEditor = () => {
         if (JSON.stringify(data) === JSON.stringify(storageRef.current)) return;
 
         storageRef.current = { ...data };
+        if (savedOpenRef.current) setSavedView(storageRef.current);
 
         if (readOnlyRef.current || storageTimer.current !== undefined) return;
 
@@ -360,7 +380,7 @@ const WebEditor = () => {
           if (epochRef.current === build) giveUpHost("The preview didn't start.");
         }, HOST_TIMEOUT_MS);
       } else {
-        setSrcdoc(buildPreview(files, runPage, storageRef.current, epochRef.current));
+        setSrcdoc(buildPreview(files, runPage, storageRef.current, epochRef.current, toolsRef.current));
       }
     }, PREVIEW_DELAY_MS);
 
@@ -415,14 +435,31 @@ const WebEditor = () => {
     setJump({ file, line });
   };
 
-  // Replaces DevTools > Application for a kid: forgets what the page saved
-  // and shows it again from scratch.
-  const clearStorage = () => {
-    if (!window.confirm("Forget everything this site saved in localStorage?")) return;
-
-    storageRef.current = {};
+  // Replaces DevTools > Application for a kid: what the page saved, changed
+  // by hand, and the page shown again from the start with it.
+  const editStorage = (next: Storage) => {
+    storageRef.current = next;
+    setSavedView(next);
     reload();
     if (!readOnly) changed();
+  };
+
+  // A setting changes for the page that is open, at once, and for the pages
+  // after it.
+  const setTools = (next: PreviewTools) => {
+    toolsRef.current = next;
+    setToolsState(next);
+    previewRef.current?.contentWindow?.postMessage({ tools: next, type: "preview:tools" }, served ? previewOrigin : "*");
+  };
+
+  const fullScreen = () => {
+    const frame = previewRef.current;
+
+    if (!frame?.requestFullscreen) {
+      say("info", "This browser can't show the site on the whole screen.");
+      return;
+    }
+    frame.requestFullscreen().catch(() => say("info", "Full screen isn't allowed here."));
   };
 
   // A line typed into the console runs in the page, like a browser's own.
@@ -671,6 +708,12 @@ const WebEditor = () => {
   const uploadRef = useRef<HTMLInputElement>(null);
 
   const activeFile = files[active];
+  // A phone or tablet: the site at that size, shrunk to fit if need be.
+  const { height: deviceHeight, width: deviceWidth } = DEVICES[device];
+  const frameBox = device === "desktop" ? undefined : { height: deviceHeight * scale, width: deviceWidth * scale };
+  const frameSize =
+    device === "desktop" ? undefined : { height: deviceHeight, transform: `scale(${scale})`, width: deviceWidth };
+
   const activePicture = useImageUrl(activeFile?.bytes, imageType(active));
 
   return (
@@ -776,42 +819,73 @@ const WebEditor = () => {
             </select>
           )}
         </div>
-        {served ? (
-          // On the preview host's own origin, never the editor's or
-          // CodeyKids', so the page can have one (same-origin) without
-          // reaching either; it cannot navigate the lesson away.
-          <iframe
-            ref={previewRef}
-            sandbox="allow-scripts allow-same-origin allow-modals allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox"
-            src={previewSrc || "about:blank"}
-            title="Preview"
-          />
-        ) : (
-          // Forms, downloads and new tabs are the kid's page's to use;
-          // without allow-same-origin the page stays walled off from the
-          // editor.
-          <iframe
-            ref={previewRef}
-            sandbox="allow-scripts allow-modals allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox"
-            srcDoc={srcdoc}
-            title="Preview"
-          />
-        )}
+        <PreviewToolbar device={device} onDevice={setDevice} onFullScreen={fullScreen} onTools={setTools} tools={tools} />
+        {/* The frame keeps its place in the page whatever the size, so a
+            change of size never reloads the site. */}
+        <div className={device === "desktop" ? "preview-stage" : "preview-stage device"} ref={stageRef}>
+          <div className="preview-frame" style={frameBox}>
+            {served ? (
+              // On the preview host's own origin, never the editor's or
+              // CodeyKids', so the page can have one (same-origin) without
+              // reaching either; it cannot navigate the lesson away.
+              <iframe
+                ref={previewRef}
+                sandbox="allow-scripts allow-same-origin allow-modals allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox"
+                src={previewSrc || "about:blank"}
+                style={frameSize}
+                title="Preview"
+              />
+            ) : (
+              // Forms, downloads and new tabs are the kid's page's to use;
+              // without allow-same-origin the page stays walled off from the
+              // editor.
+              <iframe
+                ref={previewRef}
+                sandbox="allow-scripts allow-modals allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox"
+                srcDoc={srcdoc}
+                style={frameSize}
+                title="Preview"
+              />
+            )}
+          </div>
+        </div>
         <div className="console-pane">
           <div className="console-header">
-            <span>Console</span>
+            <span className="pane-tabs" role="tablist">
+              <button aria-selected={paneTab === "console"} onClick={() => setPaneTab("console")} role="tab" type="button">
+                Console
+              </button>
+              <button
+                aria-selected={paneTab === "saved"}
+                onClick={() => {
+                  setSavedView(storageRef.current);
+                  setPaneTab("saved");
+                }}
+                role="tab"
+                title="What your site keeps with localStorage"
+                type="button"
+              >
+                Saved data
+              </button>
+            </span>
             <span>
               <button onClick={reload} title="Show the page again from the start" type="button">
                 Reload
               </button>
-              <button onClick={clearStorage} title="Forget what the page saved in localStorage" type="button">
-                Clear saved data
-              </button>
-              <button onClick={clearConsole} type="button">Clear</button>
+              {paneTab === "console" && (
+                <button onClick={clearConsole} type="button">
+                  Clear
+                </button>
+              )}
             </span>
           </div>
-          <ConsoleLines hasFile={(file) => files[file]?.text !== undefined} lines={devConsole.lines} onJump={jumpTo} />
+          {paneTab === "saved" ? (
+            <SavedData data={savedView} onChange={editStorage} readOnly={readOnly} />
+          ) : (
+            <ConsoleLines hasFile={(file) => files[file]?.text !== undefined} lines={devConsole.lines} onJump={jumpTo} />
+          )}
           <form
+            hidden={paneTab !== "console"}
             className="console-input"
             onSubmit={(e) => {
               e.preventDefault();

@@ -74,7 +74,7 @@
         // prelude.js picks it up, not into the cache other sites on this
         // host could open; only when it doesn't fit there does it go in the
         // meta file.
-        const write = async ({ epoch, files, page, storage, versions }) => {
+        const write = async ({ epoch, files, page, storage, tools, versions }) => {
           let spilled = storage;
 
           try {
@@ -97,7 +97,7 @@
           }
           await cache.put(
             keyOf(META),
-            new Response(JSON.stringify({ editorOrigin: editor, epoch, savedAt: Date.now(), session, storage: spilled, versions })),
+            new Response(JSON.stringify({ editorOrigin: editor, epoch, savedAt: Date.now(), session, storage: spilled, tools, versions })),
           );
           location.replace(base + encodePath(page));
         };

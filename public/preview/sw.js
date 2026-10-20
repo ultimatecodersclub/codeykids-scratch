@@ -104,19 +104,19 @@ const sessionOfRequest = async (event, url) => {
 
 // Asked for afresh each page (the host serves them uncached), so a deploy
 // that changes only the prelude reaches pages already open at their next run.
-// The console comes first: the prelude starts it.
+// The console and the tools come first: the prelude starts them.
 const prelude = async () => {
-  const [devConsole, own] = await Promise.all(
+  const [devConsole, tools, own] = await Promise.all(
     // A file the host can't give is left out rather than run as a page of
     // text: the prelude manages without the console.
-    ["console.js", "prelude.js"].map(async (name) => {
+    ["console.js", "tools.js", "prelude.js"].map(async (name) => {
       const response = await fetch(`${HOST}${name}`, { cache: "no-cache" });
 
       return response.ok ? response.text() : "";
     }),
   );
 
-  return `${devConsole}\n${own}`;
+  return `${devConsole}\n${tools}\n${own}`;
 };
 
 // What a server says for a page that isn't there. It has the prelude too, so
