@@ -10,16 +10,23 @@ export type Storage = Record<string, string>;
 export type WebProject = { files: WebFiles; storage: Storage };
 
 const MIME_TYPES: Record<string, string> = {
+  avif: "image/avif",
   css: "text/css",
   gif: "image/gif",
   htm: "text/html",
   html: "text/html",
+  ico: "image/x-icon",
   jpeg: "image/jpeg",
   jpg: "image/jpeg",
   js: "text/javascript",
   json: "application/json",
+  mp3: "audio/mpeg",
+  mp4: "video/mp4",
+  ogg: "audio/ogg",
   png: "image/png",
   svg: "image/svg+xml",
+  wav: "audio/wav",
+  webm: "video/webm",
   webp: "image/webp",
 };
 
@@ -28,6 +35,33 @@ export const extensionOf = (name: string) => name.toLowerCase().slice(name.lastI
 export const isText = textMatcher([".css", ".htm", ".html", ".js", ".json", ".md", ".svg", ".txt"]);
 
 export const isHtml = (name: string) => /\.html?$/i.test(name);
+
+// A name a file of the site can have: a path inside the site (folders
+// included) that a web address spells the same way, so no "." or ".." parts
+// and none of ? # % \. The editor's own folders are not the kid's.
+export const isSitePath = (name: string) =>
+  name !== "" &&
+  !name.startsWith("/") &&
+  !/[?#%\\]/.test(name) &&
+  !name.split("/").some((part) => part === "" || part === "." || part === "..") &&
+  !name.startsWith("__codeykids__/") &&
+  !name.startsWith(".codeykids/");
+
+// "images/cat.png" is in "images"; "index.html" is at the top ("").
+export const folderOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
+
+export const inFolder = (folder: string, name: string) => (folder ? `${folder}/${name}` : name);
+
+// A picture's type, for showing it in the editor; undefined for anything else.
+export const imageType = (name: string) => {
+  const type = MIME_TYPES[extensionOf(name)];
+
+  return type?.startsWith("image/") ? type : undefined;
+};
+
+// A file from the kid's computer as the site keeps it.
+export const asSiteFile = (name: string, bytes: Uint8Array): WebFile =>
+  isText(name) ? { text: new TextDecoder().decode(bytes) } : { bytes };
 
 export const STARTER_FILES: WebFiles = {
   "index.html": {
@@ -66,8 +100,11 @@ export const toZip = ({ files, storage }: WebProject) =>
   );
 
 export const fromZip = async (blob: Blob): Promise<WebProject> => {
+  // A file whose name no web address could reach would only break the
+  // preview, so it stays out.
   const all = unpackZip(new Uint8Array(await blob.arrayBuffer()), {
     isText: (name) => isText(name) || name === STORAGE_ENTRY,
+    keep: (name) => isSitePath(name) || name === STORAGE_ENTRY,
   });
   let storage: Storage = {};
 
