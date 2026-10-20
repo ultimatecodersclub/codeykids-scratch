@@ -199,6 +199,10 @@ const WebEditor = () => {
             // A report the old project's run had waiting is not this one's.
             window.clearTimeout(storageTimer.current);
             storageTimer.current = undefined;
+            // New files go to the top of this site, and the last site's
+            // empty folders aren't this one's.
+            setFolder("");
+            setEmptyFolders([]);
             storageRef.current = project.storage;
             setFiles(next);
             setActive(next["index.html"] ? "index.html" : Object.keys(next)[0]);
@@ -453,6 +457,32 @@ const WebEditor = () => {
     return true;
   };
 
+  // Why a new file or folder can't have this path: a file or a folder has it
+  // already, or a folder on the way to it is a file. Undefined when it can.
+  const takenBecause = (path: string, all: WebFiles) => {
+    if (all[path]) return `There is already a file called ${path}.`;
+    if (emptyFolders.includes(path) || Object.keys(all).some((file) => file.startsWith(`${path}/`))) {
+      return `There is already a folder called ${path}.`;
+    }
+
+    const parts = path.split("/");
+
+    for (let i = 1; i < parts.length; i += 1) {
+      const above = parts.slice(0, i).join("/");
+
+      if (all[above]) return `${above} is a file, so nothing can go inside it.`;
+    }
+
+    return undefined;
+  };
+
+  const refuseTaken = (path: string, all: WebFiles) => {
+    const reason = takenBecause(path, all);
+
+    if (reason) window.alert(reason);
+    return reason !== undefined;
+  };
+
   // The preview leaves a page that was just deleted for the site's first
   // page (a typed address that was never there stays).
   const leaveGonePage = (next: WebFiles, deleted: string[]) => {
@@ -474,11 +504,7 @@ const WebEditor = () => {
 
     const path = inFolder(folder, name);
 
-    if (badName(path)) return;
-    if (files[path]) {
-      window.alert(`There is already a file called ${path}.`);
-      return;
-    }
+    if (badName(path) || refuseTaken(path, files)) return;
     if (!isText(path)) {
       window.alert("Pictures, sounds and other files come from your computer: use ⇪ to add one.");
       return;
@@ -495,11 +521,7 @@ const WebEditor = () => {
 
     const path = inFolder(folder, name);
 
-    if (badName(path)) return;
-    if (emptyFolders.includes(path) || Object.keys(files).some((file) => file.startsWith(`${path}/`))) {
-      window.alert(`There is already a folder called ${path}.`);
-      return;
-    }
+    if (badName(path) || refuseTaken(path, files)) return;
 
     setEmptyFolders([...emptyFolders, path]);
     setFolder(path);
@@ -511,7 +533,10 @@ const WebEditor = () => {
   const addFromComputer = async (picked: FileList | null) => {
     if (!picked?.length) return;
 
-    const next = { ...filesRef.current };
+    // What this pick adds, put into the site as it is once everything is
+    // read, so edits made meanwhile (or another pick) aren't undone.
+    const added: WebFiles = {};
+    const now = () => ({ ...filesRef.current, ...added });
 
     for (const file of [...picked]) {
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -527,27 +552,43 @@ const WebEditor = () => {
         }
 
         const paths = Object.keys(unpacked).map((name) => inFolder(folder, name));
-        const clashes = paths.filter((path) => next[path]);
+        const current = now();
+        const blocked = paths.find((path) => !current[path] && takenBecause(path, current));
+
+        if (blocked) {
+          window.alert(`${file.name} can't be unpacked here: ${takenBecause(blocked, current)}`);
+          continue;
+        }
+
+        const clashes = paths.filter((path) => current[path]);
 
         if (clashes.length > 0 && !window.confirm(`Replace ${clashes.length === 1 ? clashes[0] : `${clashes.length} files already there`}?`)) {
           continue;
         }
-        for (const [name, unpackedFile] of Object.entries(unpacked)) next[inFolder(folder, name)] = unpackedFile;
+        for (const [name, unpackedFile] of Object.entries(unpacked)) added[inFolder(folder, name)] = unpackedFile;
         continue;
       }
 
       const path = inFolder(folder, file.name);
 
-      if (badName(path)) continue;
-      if (next[path] && !window.confirm(`Replace ${path}?`)) continue;
+      const current = now();
 
-      next[path] = asSiteFile(path, bytes);
+      if (badName(path)) continue;
+      if (current[path]) {
+        if (!window.confirm(`Replace ${path}?`)) continue;
+      } else if (refuseTaken(path, current)) {
+        continue;
+      }
+
+      added[path] = asSiteFile(path, bytes);
     }
 
-    if (tooBig(next)) return;
+    const next = now();
+
+    if (Object.keys(added).length === 0 || tooBig(next)) return;
 
     update(next);
-    setEmptyFolders(emptyFolders.filter((empty) => !Object.keys(next).some((path) => path.startsWith(`${empty}/`))));
+    setEmptyFolders((empties) => empties.filter((empty) => !Object.keys(next).some((path) => path.startsWith(`${empty}/`))));
   };
 
   // A copy of the site to keep on the kid's computer.
@@ -581,10 +622,10 @@ const WebEditor = () => {
 
     if (!next || next === path) return;
     if (badName(next)) return;
-    if (files[next]) {
-      window.alert(`There is already a file called ${next}.`);
-      return;
-    }
+
+    const { [path]: _moving, ...others } = files;
+
+    if (refuseTaken(next, others)) return;
     // A text file stays a kind the editor can open.
     if (files[path].text !== undefined && !isText(next)) {
       window.alert("Keep the ending: .html, .css, .js, .json, .md, .svg or .txt.");
@@ -621,12 +662,9 @@ const WebEditor = () => {
     for (const [file, content] of Object.entries(files)) {
       renamed[moving.includes(file) ? `${next}${file.slice(path.length)}` : file] = content;
     }
-    const taken = Object.keys(files).some((file) => file.startsWith(`${next}/`)) || emptyFolders.includes(next);
+    const others = Object.fromEntries(Object.entries(files).filter(([file]) => !moving.includes(file)));
 
-    if (taken || Object.keys(renamed).length !== Object.keys(files).length) {
-      window.alert(`There is already a folder called ${next}.`);
-      return;
-    }
+    if (refuseTaken(next, others)) return;
 
     update(renamed);
     setEmptyFolders(emptyFolders.map((empty) => (empty === path || empty.startsWith(`${path}/`) ? `${next}${empty.slice(path.length)}` : empty)));
