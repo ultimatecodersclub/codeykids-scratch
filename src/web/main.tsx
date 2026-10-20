@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { EditorSelection } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 import { createRoot } from "react-dom/client";
 
 import { answerSnapshot, listenToPage, postToPage } from "../bridge";
@@ -6,6 +8,7 @@ import { useImageUrl } from "../python/useImageUrl";
 import { codeCard, pictureOfPage } from "../snapshot";
 import { unpackZip } from "../zip";
 import { CodeEditor } from "./CodeEditor";
+import { ConsoleLines, useConsole } from "./Console";
 import { FileTree } from "./FileTree";
 import {
   asSiteFile,
@@ -73,9 +76,6 @@ const CHANGED_THROTTLE_MS = 1000;
 // often the site writes. It is a change by the run (the page saves it a
 // little later than an edit, and never for staff trying a kid's site).
 const STORAGE_REPORT_MS = 2000;
-const CONSOLE_CAP = 500;
-
-type ConsoleLine = { id: number; level: string; text: string };
 
 // The page a site opens on: index.html, else its first page.
 const entryPage = (files: WebFiles) =>
@@ -103,7 +103,10 @@ const WebEditor = () => {
   // the active file keeps its name.
   const [generation, setGeneration] = useState(0);
   const [reloads, setReloads] = useState(0);
-  const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([]);
+  const devConsole = useConsole();
+  // A line of a file to show once that file is in the code editor (a click
+  // on where a console line came from).
+  const [jump, setJump] = useState<{ file: string; line: number }>();
   const [command, setCommand] = useState("");
 
   const filesRef = useRef(files);
@@ -120,7 +123,6 @@ const WebEditor = () => {
   // of one project, not into the next.
   const projectRef = useRef(0);
   const previewRef = useRef<HTMLIFrameElement>(null);
-  const consoleRef = useRef<HTMLDivElement>(null);
   // The preview host keeps the site's files between runs of this editor's
   // session; only what changed since is sent again.
   const session = useMemo(() => crypto.randomUUID(), []);
@@ -128,11 +130,6 @@ const WebEditor = () => {
   const hostTimer = useRef<number>();
   // Said in the console once the next run has cleared it.
   const noticesRef = useRef<{ level: string; text: string }[]>([]);
-  // Console output arrives one message per line; lines are batched into one
-  // render a frame or so.
-  const pendingLines = useRef<ConsoleLine[]>([]);
-  const flushTimer = useRef<number>();
-  const lineId = useRef(0);
 
   filesRef.current = files;
   readOnlyRef.current = readOnly;
@@ -157,20 +154,7 @@ const WebEditor = () => {
     [changed],
   );
 
-  const pushLine = useCallback((level: string, text: string) => {
-    pendingLines.current.push({ id: (lineId.current += 1), level, text });
-
-    if (flushTimer.current !== undefined) return;
-
-    flushTimer.current = window.setTimeout(() => {
-      flushTimer.current = undefined;
-
-      const batch = pendingLines.current;
-
-      pendingLines.current = [];
-      setConsoleLines((current) => [...current, ...batch].slice(-CONSOLE_CAP));
-    }, 16);
-  }, []);
+  const { clear: clearConsole, receive: receiveConsole, say } = devConsole;
 
   // The page is shown again from the start: blank first, so the old page is
   // gone and the rebuilt document is a change even when nothing else moved.
@@ -340,7 +324,7 @@ const WebEditor = () => {
         if (page === previewPageRef.current) reload();
         else setPreviewPage(page);
       } else if (event.data.type === "preview:console") {
-        pushLine(String(event.data.level), String(event.data.text));
+        receiveConsole(event.data);
       } else if (event.data.type === "preview:storage") {
         const data = event.data.data as Storage;
 
@@ -360,7 +344,7 @@ const WebEditor = () => {
     window.addEventListener("message", listener);
 
     return () => window.removeEventListener("message", listener);
-  }, [changed, giveUpHost, pushLine, reload, sendFiles]);
+  }, [changed, giveUpHost, receiveConsole, reload, sendFiles]);
 
   // On the preview host the page the preview is on moves with the kid's
   // clicks, which must not start a new run.
@@ -372,9 +356,8 @@ const WebEditor = () => {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       epochRef.current += 1;
-      pendingLines.current = [];
-      setConsoleLines([]);
-      for (const notice of noticesRef.current) pushLine(notice.level, notice.text);
+      clearConsole();
+      for (const notice of noticesRef.current) say(notice.level, notice.text);
       noticesRef.current = [];
       if (served) {
         const editor = encodeURIComponent(window.location.origin);
@@ -391,7 +374,7 @@ const WebEditor = () => {
     }, PREVIEW_DELAY_MS);
 
     return () => window.clearTimeout(timer);
-  }, [files, giveUpHost, pushLine, runPage, reloads, served, session]);
+  }, [clearConsole, files, giveUpHost, runPage, reloads, say, served, session]);
 
   // The preview host forgets this editor's site when the editor goes away,
   // so the next kid on this computer can't read it there.
@@ -427,11 +410,28 @@ const WebEditor = () => {
     if (served) reload();
   };
 
-  useEffect(() => () => window.clearTimeout(flushTimer.current), []);
-
+  // The code editor shows the file first (its own effect runs before this
+  // one), then the line, as DevTools does for a click on where a message came
+  // from.
   useEffect(() => {
-    consoleRef.current?.scrollTo({ top: consoleRef.current.scrollHeight });
-  }, [consoleLines]);
+    if (!jump || jump.file !== active) return;
+
+    const host = document.querySelector(".code .cm-editor");
+    const view = host instanceof HTMLElement ? EditorView.findFromDOM(host) : null;
+
+    if (!view) return;
+
+    const line = view.state.doc.line(Math.min(Math.max(jump.line, 1), view.state.doc.lines));
+
+    view.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: "center" }), selection: EditorSelection.range(line.from, line.to) });
+    view.focus();
+    setJump(undefined);
+  }, [active, generation, jump]);
+
+  const jumpTo = (file: string, line: number) => {
+    setActive(file);
+    setJump({ file, line });
+  };
 
   // Replaces DevTools > Application for a kid: forgets what the page saved
   // and shows it again from scratch.
@@ -449,7 +449,7 @@ const WebEditor = () => {
 
     if (!code) return;
 
-    pushLine("input", code);
+    say("input", code);
     // A srcdoc page has no origin to name.
     previewRef.current?.contentWindow?.postMessage({ code, type: "preview:eval" }, served ? previewOrigin : "*");
     setCommand("");
@@ -859,17 +859,10 @@ const WebEditor = () => {
               <button onClick={clearStorage} title="Forget what the page saved in localStorage" type="button">
                 Clear saved data
               </button>
-              <button onClick={() => setConsoleLines([])} type="button">Clear</button>
+              <button onClick={clearConsole} type="button">Clear</button>
             </span>
           </div>
-          <div className="console-lines" ref={consoleRef}>
-            {consoleLines.length === 0 && <span className="console-hint">console.log and errors from your page show here.</span>}
-            {consoleLines.map((line) => (
-              <div className={`console-line ${line.level}`} key={line.id}>
-                {line.text}
-              </div>
-            ))}
-          </div>
+          <ConsoleLines hasFile={(file) => files[file]?.text !== undefined} lines={devConsole.lines} onJump={jumpTo} />
           <form
             className="console-input"
             onSubmit={(e) => {

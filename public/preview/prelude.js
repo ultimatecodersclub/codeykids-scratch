@@ -1,7 +1,8 @@
 // Runs first in every page of a kid's site on the preview host (sw.js puts
-// it in, after window.__CODEYKIDS__ = the run's settings). It gives the
-// editor what a browser's DevTools would: console output and errors go to the
-// editor's console, and a line typed there runs in this page. localStorage
+// it in, after window.__CODEYKIDS__ = the run's settings, and console.js). It
+// gives the editor what a browser's DevTools would: console output and errors
+// go to the editor's console (console.js), and a line typed there runs in
+// this page. localStorage
 // and sessionStorage are stand-ins: the first is the site's own saved data,
 // kept by the editor with the project (so it is per project, not shared by
 // every site on this host); both carry over from page to page of a run.
@@ -130,41 +131,27 @@
   // A file of the site is named as the kid named it; other URLs stay whole.
   const nameOf = (url) => (url && url.startsWith(ROOT) ? decodeURIComponent(url.slice(ROOT.length).split(/[?#]/)[0]) : url);
 
-  const show = (value) => {
-    if (value === undefined) return "undefined";
-    if (value instanceof Error) return `${value.name}: ${value.message}`;
-    if (typeof value === "string") return value;
-    if (typeof value === "function") return value.toString();
-    try {
-      const text = JSON.stringify(value, null, 1);
+  // console.js, which the preview host serves just before this.
+  const install = window.__CODEYKIDS_CONSOLE__;
 
-      return text === undefined ? String(value) : text;
-    } catch (error) {
-      return String(value);
-    }
-  };
-  const send = (level, args) => post({ level, text: args.map(show).join(" "), type: "preview:console" });
+  delete window.__CODEYKIDS_CONSOLE__;
 
-  for (const level of ["log", "info", "warn", "error", "debug"]) {
-    const native = console[level].bind(console);
+  // A host that started this page before a deploy added console.js leaves
+  // the page without the console until the next run, not broken.
+  const devConsole = typeof install === "function" ? install({
+    page: PAGE,
+    place: (url, line) => {
+      if (!url) return null;
+      // "/js/app.js" is the site's too (sw.js serves it from the site).
+      if (!url.startsWith(ROOT) && url.startsWith(`${location.origin}/`)) {
+        return { file: nameOf(ROOT + url.slice(location.origin.length + 1)), line };
+      }
 
-    console[level] = (...args) => {
-      native(...args);
-      send(level, args);
-    };
-  }
-  window.addEventListener("error", (event) => {
-    // A failed image, script or stylesheet: say which file is missing.
-    if (event.target && event.target !== window && (event.target.src || event.target.href)) {
-      send("error", [`Couldn't load ${nameOf(event.target.src || event.target.href)} (on ${PAGE})`]);
-      return;
-    }
+      return { file: nameOf(url), line };
+    },
+    post,
+  }) : { evaluate: () => {} };
 
-    const file = nameOf(event.filename || "") || PAGE;
-
-    send("error", [`${event.message} (${file}${event.lineno ? `, line ${event.lineno}` : ""})`]);
-  }, true);
-  window.addEventListener("unhandledrejection", (event) => send("error", [`Uncaught (in promise) ${show(event.reason)}`]));
   window.addEventListener("message", (event) => {
     if (event.source !== window.parent || event.origin !== EDITOR || !event.data) return;
     // The editor is closing: the site's files and saved data leave this
@@ -173,12 +160,7 @@
       if (window.caches) void caches.delete(`codeykids-preview-${SESSION}`);
       return;
     }
-    if (event.data.type !== "preview:eval") return;
-    try {
-      send("result", [(0, eval)(event.data.code)]);
-    } catch (error) {
-      send("error", [error]);
-    }
+    if (event.data.type === "preview:eval") devConsole.evaluate(String(event.data.code));
   });
 
   // Links to other websites open in a new tab: most refuse to be shown

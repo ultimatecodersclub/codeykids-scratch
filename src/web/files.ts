@@ -1,5 +1,6 @@
 import { strToU8 } from "fflate";
 
+import consoleScript from "../../public/preview/console.js?raw";
 import { bytesOf, packZip, ProjectFile, ProjectFiles, textMatcher, unpackZip } from "../zip";
 
 // A kid's site: text files edited in place, binary files (images) kept as
@@ -148,21 +149,32 @@ const dataURL = (name: string, file: WebFile) => {
 const inlineJSON = (value: unknown) => JSON.stringify(value).replace(/</g, "\\u003c");
 
 const OFFSETS_PLACEHOLDER = "__CODEYKIDS_OFFSETS__";
+const PAGE_LINES_PLACEHOLDER = "__CODEYKIDS_PAGE_LINES__";
+
+// A script from another website only says what went wrong (not just "Script
+// error.") when it is fetched with CORS. These CDNs allow that for every
+// file, so asking can't stop a script loading. The preview host does the
+// same (public/preview/sw.js).
+const CORS_CDNS = /^https:\/\/(cdn\.jsdelivr\.net|unpkg\.com|cdnjs\.cloudflare\.com|code\.jquery\.com|ajax\.googleapis\.com|esm\.sh|cdn\.skypack\.dev)\//i;
 
 // Runs first inside the preview, kept free of backslashes (a template literal
 // eats them). It gives the page what a sandboxed srcdoc lacks: console output
-// and errors go to the editor's pane (a line typed there runs in the page);
+// and errors go to the editor's pane through console.js, as on the preview
+// host (a line typed there runs in the page);
 // localStorage and sessionStorage are stand-ins, the first kept by the editor
 // with the project; links to the site's other pages, #id links, links
 // elsewhere and forms are handled, since the page has no address of its own.
 // Every message carries the build's epoch so a page on its way out cannot
 // speak for the next one.
-const preludeScript = (pages: string[], current: string, storage: Storage, epoch: number) => `<script>
+const preludeScript = (pages: string[], current: string, storage: Storage, epoch: number) => `<script>${consoleScript}
+//# sourceURL=__codeykids__/console.js
+</script><script>
 (() => {
   const EPOCH = ${epoch};
   const PAGES = ${inlineJSON(pages)};
   const CURRENT = ${inlineJSON(current)};
   const OFFSETS = ${OFFSETS_PLACEHOLDER};
+  const PAGE_LINES = ${PAGE_LINES_PLACEHOLDER};
   const QUOTA = 5 * 1024 * 1024;
   const post = (message) => window.parent.postMessage(Object.assign({ epoch: EPOCH }, message), "*");
 
@@ -192,28 +204,25 @@ const preludeScript = (pages: string[], current: string, storage: Storage, epoch
   Object.defineProperty(window, "localStorage", { configurable: true, value: makeStorage(${inlineJSON(storage)}, true) });
   Object.defineProperty(window, "sessionStorage", { configurable: true, value: makeStorage({}, false) });
 
-  const show = (value) => {
-    if (value === undefined) return "undefined";
-    if (value instanceof Error) return value.name + ": " + value.message;
-    if (typeof value === "string") return value;
-    if (typeof value === "function") return value.toString();
-    try { const text = JSON.stringify(value, null, 1); return text === undefined ? String(value) : text; } catch (e) { return String(value); }
+  // console.js, in the script before this one.
+  const install = window.__CODEYKIDS_CONSOLE__;
+  delete window.__CODEYKIDS_CONSOLE__;
+  // An error's line in the built page, or in a file inlined into it, as the
+  // line in the kid's file.
+  const place = (url, line, fromStack) => {
+    if (!url) return null;
+    if (url.startsWith("about:")) {
+      let mapped = line;
+      for (const [built, original] of PAGE_LINES) if (built <= line) mapped = original + line - built;
+      return { file: CURRENT, line: mapped };
+    }
+    if (Object.prototype.hasOwnProperty.call(OFFSETS, url)) return { file: url, line: fromStack ? line : line - OFFSETS[url] };
+    return { file: url, line };
   };
-  const send = (level, args) => post({ level, text: args.map(show).join(" "), type: "preview:console" });
-  const native = {};
-  for (const level of ["log", "info", "warn", "error", "debug"]) {
-    native[level] = console[level].bind(console);
-    console[level] = (...args) => { native[level](...args); send(level, args); };
-  }
-  window.addEventListener("error", (e) => {
-    const file = e.filename && !e.filename.startsWith("about:") ? e.filename : "";
-    const line = e.lineno ? e.lineno - (OFFSETS[file] || 0) : 0;
-    send("error", [e.message + " (" + (file || "this page") + (line > 0 ? ", line " + line : "") + ")"]);
-  });
-  window.addEventListener("unhandledrejection", (e) => send("error", ["Uncaught (in promise) " + show(e.reason)]));
+  const devConsole = install({ page: CURRENT, place, post });
   window.addEventListener("message", (e) => {
     if (e.source !== window.parent || !e.data || e.data.type !== "preview:eval") return;
-    try { send("result", [(0, eval)(e.data.code)]); } catch (error) { send("error", [error]); }
+    devConsole.evaluate(String(e.data.code));
   });
 
   const go = (page) => post({ page, type: "preview:navigate" });
@@ -267,6 +276,17 @@ const preludeScript = (pages: string[], current: string, storage: Storage, epoch
 export const buildPreview = (files: WebFiles, page: string, storage: Storage = {}, epoch = 0) => {
   let html = files[page]?.text ?? "";
 
+  // The page's own scripts are marked with the line they start on, before
+  // anything inlined above them moves them down.
+  html = html.replace(/<script\b(?![^>]*\bsrc\s*=)[^>]*>/gi, (tag, offset: number) =>
+    `${tag.slice(0, -1)} data-line="${html.slice(0, offset).split("\n").length}">`,
+  );
+  html = html.replace(/<script\b[^>]*>/gi, (tag) => {
+    const src = /\bsrc\s*=\s*["']([^"']+)["']/i.exec(tag);
+
+    return src && CORS_CDNS.test(src[1]) && !/\bcrossorigin\b/i.test(tag) ? `${tag.slice(0, -1)} crossorigin="anonymous">` : tag;
+  });
+
   html = html.replace(
     /<link\b[^>]*href=["']([^"']+)["'][^>]*>/gi,
     (tag, href: string) =>
@@ -306,5 +326,12 @@ export const buildPreview = (files: WebFiles, page: string, storage: Storage = {
     offsets[match[1]] = html.slice(0, match.index).split("\n").length - 1;
   }
 
-  return html.replace(OFFSETS_PLACEHOLDER, inlineJSON(offsets));
+  // Where each of the page's own scripts is now, and was in the kid's file.
+  const pageLines: [number, number][] = [];
+
+  for (const match of html.matchAll(/<script\b[^>]*\bdata-line="(\d+)"[^>]*>/gi)) {
+    pageLines.push([html.slice(0, match.index).split("\n").length, Number(match[1])]);
+  }
+
+  return html.replace(OFFSETS_PLACEHOLDER, inlineJSON(offsets)).replace(PAGE_LINES_PLACEHOLDER, inlineJSON(pageLines));
 };
