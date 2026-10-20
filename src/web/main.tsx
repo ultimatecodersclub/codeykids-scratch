@@ -116,6 +116,9 @@ const WebEditor = () => {
   const epochRef = useRef(0);
   const lastChangedAt = useRef(0);
   const storageTimer = useRef<number>();
+  // Counts the projects loaded: the page's sessionStorage lasts across runs
+  // of one project, not into the next.
+  const projectRef = useRef(0);
   const previewRef = useRef<HTMLIFrameElement>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
   // The preview host keeps the site's files between runs of this editor's
@@ -199,6 +202,7 @@ const WebEditor = () => {
             // A report the old project's run had waiting is not this one's.
             window.clearTimeout(storageTimer.current);
             storageTimer.current = undefined;
+            projectRef.current += 1;
             // New files go to the top of this site, and the last site's
             // empty folders aren't this one's.
             setFolder("");
@@ -278,6 +282,7 @@ const WebEditor = () => {
         epoch: epochRef.current,
         files: changedFiles,
         page: previewPageRef.current,
+        project: projectRef.current,
         storage: storageRef.current,
         type: "preview:files",
         versions: fileVersions,
@@ -391,7 +396,16 @@ const WebEditor = () => {
   // The preview host forgets this editor's site when the editor goes away,
   // so the next kid on this computer can't read it there.
   useEffect(() => {
-    const forget = () => previewRef.current?.contentWindow?.postMessage({ type: "preview:dispose" }, previewOrigin);
+    const forget = () => {
+      // What the page saved in its last moments still reaches the lesson
+      // page, which saves it as it closes.
+      if (storageTimer.current !== undefined) {
+        window.clearTimeout(storageTimer.current);
+        storageTimer.current = undefined;
+        if (!readOnlyRef.current) postToPage({ byRun: true, type: "changed" });
+      }
+      previewRef.current?.contentWindow?.postMessage({ type: "preview:dispose" }, previewOrigin);
+    };
 
     window.addEventListener("pagehide", forget);
 
