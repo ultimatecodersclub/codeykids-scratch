@@ -26,6 +26,10 @@ const languageFor = (name: string) => {
 };
 
 type Props = {
+  // Every file the project has now: the saved state of one that is gone
+  // (deleted or renamed) goes with it, so a new file of that name starts
+  // with no history.
+  files?: string[];
   name: string;
   onChange: (text: string) => void;
   readOnly: boolean;
@@ -36,7 +40,7 @@ type Props = {
 // state, so undo only ever steps back through that file's own edits (an undo
 // right after a switch must not bring the other file's text in), and coming
 // back to a file brings its undo history back with it.
-export const CodeEditor = ({ name, onChange, readOnly, value }: Props) => {
+export const CodeEditor = ({ files, name, onChange, readOnly, value }: Props) => {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView>();
   const onChangeRef = useRef(onChange);
@@ -96,6 +100,16 @@ export const CodeEditor = ({ name, onChange, readOnly, value }: Props) => {
     // Only a file switch shows another document; edits flow the other way.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name]);
+
+  useEffect(() => {
+    if (!files) return;
+
+    const present = new Set(files);
+
+    for (const saved of [...statesRef.current.keys()]) {
+      if (!present.has(saved)) statesRef.current.delete(saved);
+    }
+  }, [files]);
 
   useEffect(() => {
     viewRef.current?.dispatch({
