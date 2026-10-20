@@ -142,12 +142,15 @@ window.__CODEYKIDS_CONSOLE__ = ({ post, place, page }) => {
     seen.add(value);
     try {
       if (isElement(value)) {
-        for (const child of value.childNodes) {
-          if (child.nodeType === 3 && child.textContent.trim() === "") continue;
-          if (child.nodeType === 8) continue;
+        // As DevTools shows them: no blank text between tags, no comments.
+        const shown = Array.from(value.childNodes).filter(
+          (child) => child.nodeType !== 8 && !(child.nodeType === 3 && child.textContent.trim() === ""),
+        );
+
+        for (const child of shown) {
           if (!push("", child)) break;
         }
-        node.size = value.childNodes.length;
+        node.size = shown.length;
       } else if (value instanceof Map) {
         let i = 0;
 
