@@ -122,7 +122,8 @@ const ValueView = ({ nested, value }: { nested: boolean; value: Value }) => {
         <span className="value-entries">
           {inside.map(([key, item], index) => (
             <span className="value-entry" key={index}>
-              {key !== "" && <span className="value-key">{key}: </span>}
+              {/* A Map's key comes as "key =>", which needs no colon. */}
+              {key !== "" && <span className="value-key">{key.endsWith(" =>") ? `${key} ` : `${key}: `}</span>}
               <ValueView nested value={item} />
             </span>
           ))}

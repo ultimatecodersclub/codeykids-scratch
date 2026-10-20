@@ -39,9 +39,10 @@
   }
 
   const KEY = `codeykids:${SESSION}:${EPOCH}:`;
-  // sessionStorage lasts as long as the editor is open, across runs, as a
-  // browser tab's does; it is never saved.
-  const SESSION_KEY = `codeykids:${SESSION}:session`;
+  // sessionStorage lasts across runs while the editor has this project open,
+  // as a browser tab's does; it is never saved, and another project loaded
+  // starts without it.
+  const SESSION_KEY = `codeykids:${SESSION}:session:${Number(config.project) || 0}`;
 
   // Only this run's copies of localStorage are kept: earlier runs' would fill
   // the 5 MB sessionStorage has.
