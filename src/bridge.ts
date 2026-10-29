@@ -33,7 +33,17 @@ export type PageToEditor =
   // `ai` lets the editors ask CodeyKids' AI (Python's ollama stand-in,
   // Scratch's Translate block): the GraphQL URL and a token good for that
   // alone.
-  | { type: "load"; ai?: { token: string; url: string }; file?: Blob; url?: string | null; readOnly?: boolean }
+  // `extras` are files added where the project has none of the same path:
+  // today's starter over a kid's project from the lesson before (web and
+  // Python; Scratch ignores them).
+  | {
+      type: "load";
+      ai?: { token: string; url: string };
+      extras?: Blob;
+      file?: Blob;
+      url?: string | null;
+      readOnly?: boolean;
+    }
   // The AI token arrives, or is renewed, after the project loaded.
   | { type: "setAi"; ai: { token: string; url: string } }
   | { type: "save"; requestId: string }

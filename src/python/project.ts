@@ -43,6 +43,12 @@ export const fromBytes = (bytes: Uint8Array): PythonFiles => {
   return files;
 };
 
+// Today's starter's files, to add to a kid's own project from the lesson
+// before: a zip as it is, with no main.py made up (the kid has theirs), and
+// a .py starter as main.py, which the kid's own main.py then keeps out.
+export const extrasFromBytes = (bytes: Uint8Array): PythonFiles =>
+  isZip(bytes) ? unpackZip(bytes, { isText }) : { [MAIN]: { text: strFromU8(bytes) } };
+
 // One file saves as itself, so the project also opens in IDLE; more become
 // a zip, named so the page keeps the extension.
 export const toBlob = (files: PythonFiles) => {

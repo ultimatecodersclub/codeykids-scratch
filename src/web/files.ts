@@ -104,7 +104,9 @@ export const toZip = ({ files, storage }: WebProject) =>
     { type: "application/zip" },
   );
 
-export const fromZip = async (blob: Blob): Promise<WebProject> => {
+// A site's files and saved data as the zip holds them, nothing put in for an
+// empty one.
+const readZip = async (blob: Blob): Promise<WebProject> => {
   // A file whose name no web address could reach would only break the
   // preview, so it stays out.
   const all = unpackZip(new Uint8Array(await blob.arrayBuffer()), {
@@ -122,8 +124,18 @@ export const fromZip = async (blob: Blob): Promise<WebProject> => {
     delete all[STORAGE_ENTRY];
   }
 
-  return { files: Object.keys(all).length > 0 ? all : structuredClone(STARTER_FILES), storage };
+  return { files: all, storage };
 };
+
+export const fromZip = async (blob: Blob): Promise<WebProject> => {
+  const project = await readZip(blob);
+
+  return Object.keys(project.files).length > 0 ? project : { ...project, files: structuredClone(STARTER_FILES) };
+};
+
+// Today's starter's files, to add to a kid's own project from the lesson
+// before; its saved data stays out, since the kid's is theirs.
+export const extrasFromZip = async (blob: Blob) => (await readZip(blob)).files;
 
 // Encoded once per file object: an edit replaces only the edited file, so
 // the images keep their identity from one preview build to the next.
