@@ -6,7 +6,7 @@ import { createRoot } from "react-dom/client";
 import { answerSnapshot, listenToPage, postToPage } from "../bridge";
 import { useImageUrl } from "../python/useImageUrl";
 import { codeCard, pictureOfPage } from "../snapshot";
-import { unpackZip } from "../zip";
+import { unpackZip, withExtras } from "../zip";
 import { AiAccess, askAi, requestFrom } from "./ai";
 import { AiHelper } from "./AiHelper";
 import { CodeEditor } from "./CodeEditor";
@@ -18,6 +18,7 @@ import {
   asSiteFile,
   buildPreview,
   bytesOf,
+  extrasFromZip,
   folderOf,
   fromZip,
   imageType,
@@ -202,7 +203,7 @@ const WebEditor = () => {
           try {
             const blob = message.file ?? (message.url ? await (await fetch(message.url)).blob() : undefined);
             const project = blob ? await fromZip(blob) : { files: structuredClone(STARTER_FILES), storage: {} };
-            const next = project.files;
+            const next = message.extras ? withExtras(project.files, await extrasFromZip(message.extras)) : project.files;
 
             // The old page goes away before the new project is in, so
             // nothing it still does lands on the new one.

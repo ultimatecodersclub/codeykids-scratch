@@ -5,11 +5,12 @@ import { createRoot } from "react-dom/client";
 import { answerSnapshot, listenToPage, postToPage } from "../bridge";
 import { codeCard, pictureOf } from "../snapshot";
 import { CodeEditor } from "../web/CodeEditor";
+import { withExtras } from "../zip";
 import { Engine, engineFor } from "./engine";
 import { pressKey, showWindow } from "./full/camera";
 import { AiAccess, runFullPython, stopFullPython, warmUpFullPython } from "./full/client";
 import { GAME_CANVAS_ID, releaseGameKeys, runGame, stopGame, warmUpGame } from "./game/engine";
-import { bytesOf, fromBytes, isText, MAIN, PythonFiles, starterFiles, toBlob } from "./project";
+import { bytesOf, extrasFromBytes, fromBytes, isText, MAIN, PythonFiles, starterFiles, toBlob } from "./project";
 import { RunError, runPython } from "./runner";
 import { syncReady } from "./syncio";
 import { useImageUrl } from "./useImageUrl";
@@ -172,7 +173,10 @@ const PythonEditor = () => {
         case "load":
           try {
             const blob = message.file ?? (message.url ? await (await fetch(message.url)).blob() : undefined);
-            const next = blob ? fromBytes(new Uint8Array(await blob.arrayBuffer())) : starterFiles();
+            const own = blob ? fromBytes(new Uint8Array(await blob.arrayBuffer())) : starterFiles();
+            const next = message.extras
+              ? withExtras(own, extrasFromBytes(new Uint8Array(await message.extras.arrayBuffer())))
+              : own;
 
             setFiles(next);
             setActive(MAIN);

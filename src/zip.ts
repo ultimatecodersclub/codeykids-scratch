@@ -61,6 +61,30 @@ export const packZip = (files: ProjectFiles, extra: Record<string, string> = {})
 };
 
 // Size as saved, so a project full of emoji is not undercounted.
+// The folders a path is in: "a/b/c.png" is in "a" and "a/b".
+const foldersOf = (path: string) =>
+  path
+    .split("/")
+    .slice(0, -1)
+    .map((_, i, parts) => parts.slice(0, i + 1).join("/"));
+
+// A project with another's files added where it has none of the same path:
+// today's starter over a kid's project from the lesson before. The kid's own
+// files always win, and an extra that would clash with them (a file where the
+// kid has a folder of that name, or one inside what the kid has as a file)
+// stays out.
+export const withExtras = (files: ProjectFiles, extras: ProjectFiles): ProjectFiles => {
+  const next = { ...files };
+  const folders = new Set(Object.keys(files).flatMap(foldersOf));
+
+  for (const [path, file] of Object.entries(extras)) {
+    if (path in next || folders.has(path) || foldersOf(path).some((folder) => folder in files)) continue;
+    next[path] = file;
+  }
+
+  return next;
+};
+
 export const bytesOf = (files: ProjectFiles) =>
   Object.values(files).reduce(
     (total, file) => total + (file.bytes?.byteLength ?? (file.text ? strToU8(file.text).byteLength : 0)),
