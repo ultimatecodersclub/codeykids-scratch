@@ -64,7 +64,7 @@ iframe):
 
 | Message | Meaning |
 | --- | --- |
-| `{ type: "load", file?, url?, readOnly? }` | Load the project given as a Blob in `file`, or fetched from `url` (`.sb3` for Scratch, a zip for the web editor, `.py` or a zip holding one for Python). With neither, the current project stays. |
+| `{ type: "load", file?, url?, readOnly? }` | Load the project given as a Blob in `file`, or fetched from `url` (`.sb3` for Scratch, a zip for the web editor, `.py` or a zip holding one for Python). With neither, each editor starts a new project (Scratch's cat, the web editor's three-file site, Python's starter file), never what was open before. |
 | `{ type: "save", requestId }` | Ask for the current project as a Blob (`.sb3`, a zip of the site, or `main.py` or a zip for Python). The Blob is a `File` with a name when the extension matters. |
 | `{ type: "snapshot", requestId }` | Ask for a picture of the work as it stands, for the project card: the Scratch stage, the turtle drawing (or the first lines of `main.py` when nothing was drawn), the site's first page as written. |
 | `{ type: "setReadOnly", value }` | Switch between the editor and player-only mode. |
