@@ -13,6 +13,7 @@ import { CodeEditor } from "./CodeEditor";
 import { ConsoleLines, useConsole } from "./Console";
 import { FileTree } from "./FileTree";
 import { DEVICES, Device, PreviewToolbar, SavedData, useFit } from "./PreviewTools";
+import { Divider, useSplit } from "./Divider";
 import {
   asSiteFile,
   buildPreview,
@@ -128,6 +129,7 @@ const WebEditor = () => {
   // re-render the editor every frame.
   const [savedView, setSavedView] = useState<Storage>({});
   const { scale, stageRef } = useFit(device);
+  const split = useSplit();
 
   const filesRef = useRef(files);
   const readOnlyRef = useRef(readOnly);
@@ -808,7 +810,7 @@ const WebEditor = () => {
   const activePicture = useImageUrl(activeFile?.bytes, imageType(active));
 
   return (
-    <div className="layout">
+    <div className="layout" style={split.style}>
       <aside className="files">
         <div className="files-header">
           <span>Files</span>
@@ -855,6 +857,7 @@ const WebEditor = () => {
       <main className="code">
         {activeFile?.text !== undefined ? (
           <CodeEditor
+            files={names}
             key={generation}
             name={active}
             onChange={(text) => update({ ...filesRef.current, [active]: { text } })}
@@ -873,6 +876,8 @@ const WebEditor = () => {
           <div className="binary">No file selected.</div>
         )}
       </main>
+
+      <Divider split={split} />
 
       <section className="preview">
         <div className="preview-header">
