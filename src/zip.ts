@@ -23,12 +23,17 @@ const stripTopFolder = (paths: string[]) => {
   return (path: string) => (top ? path.slice(top.length) : path);
 };
 
+// `stripTop` is for a whole project; files added to one keep their folders.
 export const unpackZip = (
   bytes: Uint8Array,
-  { isText, keep = () => true }: { isText: (name: string) => boolean; keep?: (name: string) => boolean },
+  {
+    isText,
+    keep = () => true,
+    stripTop = true,
+  }: { isText: (name: string) => boolean; keep?: (name: string) => boolean; stripTop?: boolean },
 ): ProjectFiles => {
   const entries = Object.entries(unzipSync(bytes)).filter(([path]) => !isNoise(path));
-  const strip = stripTopFolder(entries.map(([path]) => path));
+  const strip = stripTop ? stripTopFolder(entries.map(([path]) => path)) : (path: string) => path;
   const files: ProjectFiles = {};
 
   for (const [path, data] of entries) {
@@ -56,6 +61,30 @@ export const packZip = (files: ProjectFiles, extra: Record<string, string> = {})
 };
 
 // Size as saved, so a project full of emoji is not undercounted.
+// The folders a path is in: "a/b/c.png" is in "a" and "a/b".
+const foldersOf = (path: string) =>
+  path
+    .split("/")
+    .slice(0, -1)
+    .map((_, i, parts) => parts.slice(0, i + 1).join("/"));
+
+// A project with another's files added where it has none of the same path:
+// today's starter over a kid's project from the lesson before. The kid's own
+// files always win, and an extra that would clash with them (a file where the
+// kid has a folder of that name, or one inside what the kid has as a file)
+// stays out.
+export const withExtras = (files: ProjectFiles, extras: ProjectFiles): ProjectFiles => {
+  const next = { ...files };
+  const folders = new Set(Object.keys(files).flatMap(foldersOf));
+
+  for (const [path, file] of Object.entries(extras)) {
+    if (path in next || folders.has(path) || foldersOf(path).some((folder) => folder in files)) continue;
+    next[path] = file;
+  }
+
+  return next;
+};
+
 export const bytesOf = (files: ProjectFiles) =>
   Object.values(files).reduce(
     (total, file) => total + (file.bytes?.byteLength ?? (file.text ? strToU8(file.text).byteLength : 0)),
